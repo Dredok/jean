@@ -184,7 +184,7 @@ export function ContextMentionPopover({
     issueLimit,
     prLimit,
   })
-  const { getMatches } = useContextLinkUsage({
+  const { getMatches, currentWorktreeId } = useContextLinkUsage({
     enabled: open,
     projectId,
     projectPath,
@@ -212,13 +212,13 @@ export function ContextMentionPopover({
       if (existing) {
         openContextLinkMatch(existing)
         toast.info(
-          `${item.label} is already in ${contextLinkMatchLabel(existing)} — opened it`
+          `${item.label} is already in ${contextLinkMatchLabel(existing, currentWorktreeId)} — opened it`
         )
         return
       }
       onSelectContext(item, investigate)
     },
-    [getMatches, onOpenChange, onSelectContext]
+    [currentWorktreeId, getMatches, onOpenChange, onSelectContext]
   )
 
   const handleRefresh = useCallback(async () => {
@@ -495,7 +495,14 @@ export function ContextMentionPopover({
                           </span>
                           <span className="font-medium">{item.title}</span>
                         </div>
-                        <ContextLinkBadge matches={matches} />
+                        <ContextLinkBadge
+                          matches={matches}
+                          currentWorktreeId={currentWorktreeId}
+                          onOpen={match => {
+                            onOpenChange(false)
+                            openContextLinkMatch(match)
+                          }}
+                        />
                         {item.badge && (
                           <span className="shrink-0 self-center rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
                             {item.badge}
@@ -554,7 +561,7 @@ export function ContextMentionPopover({
                               </TooltipTrigger>
                               <TooltipContent className="flex items-center gap-2">
                                 {existing
-                                  ? `Open ${contextLinkMatchLabel(existing)}`
+                                  ? `Open ${contextLinkMatchLabel(existing, currentWorktreeId)}`
                                   : `Add ${item.label} and start investigating`}
                                 {showKeyboardHints && isSelected && (
                                   <Kbd>Shift+Enter</Kbd>

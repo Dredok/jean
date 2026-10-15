@@ -555,6 +555,44 @@ describe('ContextMentionPopover', () => {
     )
   })
 
+  it('opens the existing session from its badge', () => {
+    const match = {
+      worktreeId: 'wt-1',
+      worktreeName: 'main',
+      worktreePath: '/tmp/repo',
+      sessionId: 'session-2',
+      sessionName: 'Investigate #123',
+    }
+    linkUsage.getMatches.mockReturnValue([match])
+    useContextMentionDataMock.mockImplementation(() => ({
+      groups: [
+        {
+          id: 'issue',
+          heading: 'GitHub Issues',
+          items: [{ ...items[0], issue: { number: 123 } as GitHubIssue }],
+        },
+      ],
+      isFetching: false,
+    }))
+    const onOpenChange = vi.fn()
+    render(
+      <ContextMentionPopover
+        projectPath="/tmp/repo"
+        projectId="project-1"
+        open
+        onOpenChange={onOpenChange}
+        onSelectContext={vi.fn()}
+        searchQuery=""
+        anchorPosition={{ top: 0, left: 0 }}
+      />
+    )
+
+    fireEvent.click(screen.getByTestId('context-link-badge'))
+
+    expect(linkUsage.open).toHaveBeenCalledWith(match)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it('refreshes only context queries for the current project', async () => {
     const client = new QueryClient()
     const refreshedKeys = [
