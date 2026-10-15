@@ -13835,13 +13835,70 @@ fn collect_codex_skills(home: &Path, worktree: Option<&Path>) -> Vec<ClaudeSkill
     skills
 }
 
-/// List Codex CLI skills from the current Codex and legacy Jean locations.
-pub async fn list_codex_skills(worktree_path: Option<String>) -> Result<Vec<ClaudeSkill>, String> {
+/// Ask the Codex app-server which skills are enabled for `cwd`, including plugin skills.
+fn list_codex_skills_from_app_server(
+    app: &AppHandle,
+    cwd: &str,
+) -> Result<Vec<ClaudeSkill>, String> {
+    crate::chat::codex_server::ensure_running(app)?;
+    let response = crate::chat::codex_server::send_request(
+        "skills/list",
+        serde_json::json!({ "cwds": [cwd], "forceReload": true }),
+    );
+    crate::chat::codex_server::release_usage();
+    Ok(parse_codex_skills_list(&response?))
+}
+
+/// Parse a `skills/list` response into enabled skills, sorted and deduplicated by name.
+fn parse_codex_skills_list(response: &serde_json::Value) -> Vec<ClaudeSkill> {
+    let mut skills_map = std::collections::HashMap::new();
+    let entries = response["data"].as_array().into_iter().flatten();
+    for skill in entries.flat_map(|entry| entry["skills"].as_array().into_iter().flatten()) {
+        let (Some(name), Some(path)) = (skill["name"].as_str(), skill["path"].as_str()) else {
+            continue;
+        };
+        if !skill["enabled"].as_bool().unwrap_or(true) {
+            continue;
+        }
+        let description = skill["description"]
+            .as_str()
+            .filter(|d| !d.is_empty())
+            .map(str::to_string);
+        skills_map.entry(name.to_string()).or_insert(ClaudeSkill {
+            name: name.to_string(),
+            path: path.to_string(),
+            description,
+        });
+    }
+    let mut skills: Vec<ClaudeSkill> = skills_map.into_values().collect();
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    skills
+}
+
+/// List Codex CLI skills. Codex itself is the source of truth (it knows which
+/// plugins are enabled); scan skill directories only when Codex is unavailable.
+pub async fn list_codex_skills(
+    app: AppHandle,
+    worktree_path: Option<String>,
+) -> Result<Vec<ClaudeSkill>, String> {
     log::trace!("Listing Codex CLI skills");
 
-    let skills = get_home_dir()
-        .map(|home| collect_codex_skills(&home, worktree_path.as_deref().map(Path::new)))
-        .unwrap_or_default();
+    let home = get_home_dir();
+    let skills = tokio::task::spawn_blocking(move || {
+        let cwd = worktree_path
+            .clone()
+            .or_else(|| home.as_ref().map(|h| h.to_string_lossy().into_owned()));
+        if let Some(cwd) = cwd {
+            match list_codex_skills_from_app_server(&app, &cwd) {
+                Ok(skills) => return skills,
+                Err(e) => log::debug!("Codex skills/list failed, scanning directories: {e}"),
+            }
+        }
+        home.map(|home| collect_codex_skills(&home, worktree_path.as_deref().map(Path::new)))
+            .unwrap_or_default()
+    })
+    .await
+    .map_err(|e| format!("Failed to list Codex skills: {e}"))?;
     log::trace!("Found {} Codex CLI skills", skills.len());
     Ok(skills)
 }
@@ -13961,7 +14018,7 @@ fn opencode_config_dir(home: &std::path::Path) -> std::path::PathBuf {
 pub struct PluginSkillGroup {
     /// Plugin display name (e.g., "Superpowers", "Frontend Design")
     pub plugin_name: String,
-    /// Skills found in this plugin's skills/ directory
+    /// Skills found in this plugin's skills/ directory, named `<plugin-id>:<skill>`
     pub skills: Vec<ClaudeSkill>,
 }
 
@@ -14069,7 +14126,14 @@ pub async fn list_plugin_skills() -> Result<Vec<PluginSkillGroup>, String> {
         let plugin_id = plugin_key.split('@').next().unwrap_or(plugin_key);
         let plugin_name = plugin_id_to_display_name(plugin_id);
 
-        let mut skills: Vec<ClaudeSkill> = skills_map.into_values().collect();
+        // Namespace like Claude CLI (`pstack:bro`) so users can search by plugin
+        let mut skills: Vec<ClaudeSkill> = skills_map
+            .into_values()
+            .map(|skill| ClaudeSkill {
+                name: format!("{plugin_id}:{}", skill.name),
+                ..skill
+            })
+            .collect();
         skills.sort_by(|a, b| a.name.cmp(&b.name));
 
         groups.push(PluginSkillGroup {
@@ -14391,6 +14455,47 @@ mod tests {
         assert!(!provided_cached_value_changed(&Some(1), &Some(1)));
         assert!(provided_cached_value_changed(&Some(2), &Some(1)));
         assert!(provided_cached_value_changed(&Some(1), &None));
+    }
+
+    #[test]
+    fn codex_skills_list_keeps_enabled_plugin_and_system_skills() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "cwd": "/repo",
+                    "skills": [
+                        { "name": "pages:write-page", "path": "/p/write-page/SKILL.md", "description": "Write a page", "enabled": true, "scope": "user", "pluginId": "pages@openai-curated-remote" },
+                        { "name": "imagegen", "path": "/s/imagegen/SKILL.md", "description": "", "enabled": true, "scope": "system" },
+                        { "name": "off", "path": "/s/off/SKILL.md", "description": "Disabled", "enabled": false, "scope": "user" }
+                    ],
+                    "errors": []
+                },
+                {
+                    "cwd": "/other",
+                    "skills": [
+                        { "name": "imagegen", "path": "/dup/SKILL.md", "description": "dup", "enabled": true, "scope": "system" }
+                    ]
+                }
+            ]
+        });
+
+        let skills = parse_codex_skills_list(&response);
+
+        let summary: Vec<_> = skills
+            .iter()
+            .map(|s| (s.name.as_str(), s.path.as_str(), s.description.as_deref()))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("imagegen", "/s/imagegen/SKILL.md", None),
+                (
+                    "pages:write-page",
+                    "/p/write-page/SKILL.md",
+                    Some("Write a page")
+                ),
+            ]
+        );
     }
 
     #[test]
