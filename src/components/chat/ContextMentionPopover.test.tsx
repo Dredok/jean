@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ContextMentionPopover } from './ContextMentionPopover'
 import type { ContextMentionItem } from './hooks/useContextMentionData'
 import type { GitHubIssue } from '@/types/github'
+import { toast } from 'sonner'
 import type * as EnvironmentModule from '@/lib/environment'
 import type * as ContextLinkUsageModule from '@/hooks/useContextLinkUsage'
 
@@ -14,6 +15,10 @@ const platform = vi.hoisted(() => ({ native: false, mobile: false }))
 vi.mock('@/lib/environment', async importOriginal => ({
   ...(await importOriginal<typeof EnvironmentModule>()),
   isNativeApp: () => platform.native,
+}))
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), info: vi.fn() },
 }))
 
 vi.mock('@/hooks/use-mobile', () => ({
@@ -484,11 +489,11 @@ describe('ContextMentionPopover', () => {
 
   it('blocks a second refresh while the first refresh runs', async () => {
     const client = new QueryClient()
-    let finishRefresh: (() => void) | undefined
+    const pending: (() => void)[] = []
     vi.spyOn(client, 'invalidateQueries').mockImplementation(
       () =>
         new Promise<void>(resolve => {
-          finishRefresh = resolve
+          pending.push(resolve)
         })
     )
 
@@ -511,7 +516,57 @@ describe('ContextMentionPopover', () => {
     })
     fireEvent.click(refresh)
     expect(refresh).toBeDisabled()
-    await act(async () => finishRefresh?.())
+    await act(async () => pending.forEach(resolve => resolve()))
     expect(refresh).not.toBeDisabled()
+  })
+
+  it.each([
+    {
+      name: 'ignores a missing Linear API key',
+      github: undefined,
+      linear: new Error('No Linear API key configured. Add one in Settings'),
+      toast: null,
+    },
+    {
+      name: 'reports a GitHub failure',
+      github: new Error('gh auth failed'),
+      linear: new Error('No Linear API key configured. Add one in Settings'),
+      toast: 'Failed to refresh context links: Error: gh auth failed',
+    },
+  ])('$name on refresh', async ({ github, linear, toast: expected }) => {
+    const client = new QueryClient()
+    vi.spyOn(client, 'invalidateQueries').mockImplementation(filters => {
+      const predicate = (filters as { predicate: (q: unknown) => boolean })
+        .predicate
+      const matches = (queryKey: string[]) => predicate({ queryKey })
+      const error =
+        (matches(['github', 'issues', '/tmp/repo']) && github) ||
+        (matches(['linear', 'issues', 'project-1']) && linear)
+      return error ? Promise.reject(error) : Promise.resolve()
+    })
+    const toastError = vi.mocked(toast.error)
+    toastError.mockClear()
+
+    renderWithoutProviders(
+      <QueryClientProvider client={client}>
+        <ContextMentionPopover
+          projectPath="/tmp/repo"
+          projectId="project-1"
+          open
+          onOpenChange={vi.fn()}
+          onSelectContext={vi.fn()}
+          searchQuery=""
+          anchorPosition={{ top: 0, left: 0 }}
+        />
+      </QueryClientProvider>
+    )
+
+    const refresh = screen.getByRole('button', {
+      name: 'Refresh context links',
+    })
+    fireEvent.click(refresh)
+    await waitFor(() => expect(refresh).not.toBeDisabled())
+    if (expected) expect(toastError).toHaveBeenCalledWith(expected)
+    else expect(toastError).not.toHaveBeenCalled()
   })
 })

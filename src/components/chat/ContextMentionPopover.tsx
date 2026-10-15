@@ -35,6 +35,7 @@ import {
 import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { BOTTOM_UP_LIST_CLASS } from './mention-list'
+import { isLinearAuthError } from '@/services/linear'
 import { IssuePreviewModal } from '@/components/worktree/IssuePreviewModal'
 import { ContextLinkBadge } from '@/components/worktree/ContextLinkBadge'
 import {
@@ -187,25 +188,36 @@ export function ContextMentionPopover({
   const handleRefresh = useCallback(async () => {
     if (!projectPath && !projectId) return
     setIsRefreshing(true)
-    try {
-      await queryClient.invalidateQueries(
+    const results = await Promise.allSettled([
+      queryClient.invalidateQueries(
         {
           predicate: ({ queryKey }) =>
-            (Boolean(projectPath) &&
-              queryKey[0] === 'github' &&
-              queryKey[2] === projectPath &&
-              githubContextQueries.has(String(queryKey[1]))) ||
-            (Boolean(projectId) &&
-              queryKey[0] === 'linear' &&
-              queryKey[2] === projectId &&
-              linearContextQueries.has(String(queryKey[1]))),
+            Boolean(projectPath) &&
+            queryKey[0] === 'github' &&
+            queryKey[2] === projectPath &&
+            githubContextQueries.has(String(queryKey[1])),
         },
         { throwOnError: true }
-      )
-    } catch (error) {
-      toast.error(`Failed to refresh context links: ${error}`)
-    } finally {
-      setIsRefreshing(false)
+      ),
+      queryClient.invalidateQueries(
+        {
+          predicate: ({ queryKey }) =>
+            Boolean(projectId) &&
+            queryKey[0] === 'linear' &&
+            queryKey[2] === projectId &&
+            linearContextQueries.has(String(queryKey[1])),
+        },
+        { throwOnError: true }
+      ),
+    ])
+    setIsRefreshing(false)
+    // Linear is optional: a missing/invalid key is not a refresh failure
+    const failure = results.find(
+      (result): result is PromiseRejectedResult =>
+        result.status === 'rejected' && !isLinearAuthError(result.reason)
+    )
+    if (failure) {
+      toast.error(`Failed to refresh context links: ${failure.reason}`)
     }
   }, [projectId, projectPath, queryClient])
 
