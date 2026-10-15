@@ -67,6 +67,17 @@ const linearContextQueries = new Set([
   'issue-by-number',
 ])
 
+const DEFAULT_LIST_LIMIT = 8
+/**
+ * "Load more" limits per project, filter, and search. Kept at module level so
+ * they survive closing the menu; cleared only by refresh or an app restart.
+ */
+const loadedLimits = new Map<string, number>()
+
+function limitKeyPrefix(projectPath: string | null, projectId: string | null) {
+  return `${projectPath ?? ''}\0${projectId ?? ''}\0`
+}
+
 interface PreviewTarget {
   type: 'issue' | 'pr' | 'security' | 'advisory'
   number: number
@@ -135,15 +146,24 @@ export function ContextMentionPopover({
   )
   const [includeClosed, setIncludeClosed] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
-  const [issueLimit, setIssueLimit] = useState(8)
-  const [prLimit, setPrLimit] = useState(8)
+  const [, setLimitsVersion] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
+  const query = menuSearch || searchQuery
+  const limitKey = (group: 'issue' | 'pr') =>
+    `${limitKeyPrefix(projectPath, projectId)}${includeClosed}\0${group}\0${query}`
+  const issueLimit = loadedLimits.get(limitKey('issue')) ?? DEFAULT_LIST_LIMIT
+  const prLimit = loadedLimits.get(limitKey('pr')) ?? DEFAULT_LIST_LIMIT
+  const loadMore = (group: 'issue' | 'pr') => {
+    const limit = group === 'issue' ? issueLimit : prLimit
+    loadedLimits.set(limitKey(group), limit + DEFAULT_LIST_LIMIT)
+    setLimitsVersion(version => version + 1)
+  }
   const { groups, isFetching } = useContextMentionData({
     open,
     projectPath,
     projectId,
-    query: menuSearch || searchQuery,
+    query,
     includeClosed,
     issueLimit,
     prLimit,
@@ -188,6 +208,11 @@ export function ContextMentionPopover({
   const handleRefresh = useCallback(async () => {
     if (!projectPath && !projectId) return
     setIsRefreshing(true)
+    const prefix = limitKeyPrefix(projectPath, projectId)
+    for (const key of loadedLimits.keys()) {
+      if (key.startsWith(prefix)) loadedLimits.delete(key)
+    }
+    setLimitsVersion(version => version + 1)
     const results = await Promise.allSettled([
       queryClient.invalidateQueries(
         {
@@ -221,11 +246,7 @@ export function ContextMentionPopover({
     }
   }, [projectId, projectPath, queryClient])
 
-  const resetListPosition = useCallback(() => {
-    setSelectedIndex(0)
-    setIssueLimit(8)
-    setPrLimit(8)
-  }, [])
+  const resetListPosition = useCallback(() => setSelectedIndex(0), [])
 
   // Prop-driven resets. Local filter changes (menuSearch, includeClosed)
   // reset in their own event handlers to avoid chaining effects.
@@ -509,11 +530,9 @@ export function ContextMentionPopover({
                       <button
                         type="button"
                         className="w-full rounded px-3 py-2 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => {
-                          if (group.id === 'issue')
-                            setIssueLimit(limit => limit + 8)
-                          else setPrLimit(limit => limit + 8)
-                        }}
+                        onClick={() =>
+                          loadMore(group.id === 'issue' ? 'issue' : 'pr')
+                        }
                       >
                         Load more{' '}
                         {group.id === 'issue' ? 'issues' : 'pull requests'}

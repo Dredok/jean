@@ -442,6 +442,57 @@ describe('ContextMentionPopover', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps loaded issues after reopening until refresh', async () => {
+    const issues = Array.from(
+      { length: 10 },
+      (_, index): ContextMentionItem => ({
+        ...items[0],
+        id: `issue:${index + 1}`,
+        label: `#${index + 1}`,
+        title: `Issue ${index + 1}`,
+      })
+    )
+    useContextMentionDataMock.mockImplementation(
+      ({ issueLimit }: { issueLimit: number }) => ({
+        groups: [
+          {
+            id: 'issue',
+            heading: 'GitHub Issues',
+            items: issues.slice(0, issueLimit),
+            hasMore: issues.length > issueLimit,
+          },
+        ],
+        isFetching: false,
+      })
+    )
+    const popover = (
+      <ContextMentionPopover
+        projectPath="/tmp/cached-repo"
+        projectId="cached-project"
+        open
+        onOpenChange={vi.fn()}
+        onSelectContext={vi.fn()}
+        searchQuery=""
+        anchorPosition={{ top: 0, left: 0 }}
+      />
+    )
+
+    const first = render(popover)
+    fireEvent.click(screen.getByRole('button', { name: 'Load more issues' }))
+    expect(screen.getByText('Issue 9')).toBeInTheDocument()
+    first.unmount()
+
+    render(popover)
+    expect(screen.getByText('Issue 9')).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh context links' })
+    )
+    await waitFor(() =>
+      expect(screen.queryByText('Issue 9')).not.toBeInTheDocument()
+    )
+  })
+
   it('refreshes only context queries for the current project', async () => {
     const client = new QueryClient()
     const refreshedKeys = [
