@@ -5,6 +5,8 @@ export interface BulkInvestigateBarProps {
   count: number
   isLoading?: boolean
   noun?: string
+  /** Replaces the default "Investigate N items in background" label */
+  actionLabel?: string
   onClear: () => void
   onInvestigate: () => void
 }
@@ -14,6 +16,7 @@ export function BulkInvestigateBar({
   count,
   isLoading = false,
   noun = 'items',
+  actionLabel,
   onClear,
   onInvestigate,
 }: BulkInvestigateBarProps) {
@@ -43,7 +46,9 @@ export function BulkInvestigateBar({
         ) : (
           <Wand2 className="h-4 w-4 text-current" />
         )}
-        {isLoading ? 'Starting…' : `Investigate ${count} ${noun} in background`}
+        {isLoading
+          ? 'Starting…'
+          : (actionLabel ?? `Investigate ${count} ${noun} in background`)}
       </Button>
     </div>
   )

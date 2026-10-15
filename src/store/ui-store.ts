@@ -10,6 +10,8 @@ export interface InvestigationOverride {
   model?: string
   provider?: string | null
   forceNewSession?: boolean
+  /** Queue the investigation into this existing session */
+  sessionId?: string
   prompt?: string
   promptTemplate?: string
   issueContext?: IssueContext

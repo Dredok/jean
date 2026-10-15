@@ -493,6 +493,57 @@ describe('ContextMentionPopover', () => {
     )
   })
 
+  it('investigates checked issues and PRs together, skipping investigated ones', () => {
+    const investigated: ContextMentionItem = {
+      id: 'issue:7',
+      type: 'issue',
+      label: '#7',
+      title: 'Already investigated',
+      issue: { number: 7 } as GitHubIssue,
+    }
+    useContextMentionDataMock.mockImplementation(() => ({
+      groups: [
+        {
+          id: 'issue',
+          heading: 'GitHub Issues',
+          items: [items[0], investigated],
+        },
+        { id: 'pr', heading: 'GitHub Pull Requests', items: [items[1]] },
+      ],
+      isFetching: false,
+    }))
+    linkUsage.getMatches.mockImplementation((ref?: unknown) =>
+      (ref as { id?: unknown } | undefined)?.id === 7 ? [{}] : []
+    )
+    const onInvestigateInNewSession = vi.fn()
+    const onSelectContext = vi.fn()
+    render(
+      <ContextMentionPopover
+        projectPath="/tmp/repo"
+        projectId="project-1"
+        open
+        onOpenChange={vi.fn()}
+        onSelectContext={onSelectContext}
+        onInvestigateInNewSession={onInvestigateInNewSession}
+        searchQuery=""
+        anchorPosition={{ top: 0, left: 0 }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select #123' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select #7' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select PR #45' }))
+    expect(onSelectContext).not.toHaveBeenCalled()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Investigate 3 in new session' })
+    )
+
+    expect(onInvestigateInNewSession).toHaveBeenCalledWith([items[0], items[1]])
+    expect(toast.info).toHaveBeenCalledWith(
+      'Skipped 1 already investigated item'
+    )
+  })
+
   it('refreshes only context queries for the current project', async () => {
     const client = new QueryClient()
     const refreshedKeys = [

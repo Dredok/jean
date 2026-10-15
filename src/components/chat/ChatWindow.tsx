@@ -3380,6 +3380,7 @@ const ChatWindowContent = memo(function ChatWindowContent({
                                 <ChatInput
                                   activeSessionId={activeSessionId}
                                   activeWorktreePath={activeWorktreePath}
+                                  activeWorktreeId={worktree?.id ?? null}
                                   activeProjectId={worktree?.project_id ?? null}
                                   isSending={isSending}
                                   executionMode={executionMode}

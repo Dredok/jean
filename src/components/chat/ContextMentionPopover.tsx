@@ -38,6 +38,8 @@ import { BOTTOM_UP_LIST_CLASS } from './mention-list'
 import { isLinearAuthError } from '@/services/linear'
 import { IssuePreviewModal } from '@/components/worktree/IssuePreviewModal'
 import { ContextLinkBadge } from '@/components/worktree/ContextLinkBadge'
+import { BulkInvestigateBar } from '@/components/worktree/BulkInvestigateBar'
+import { ItemSelectCheckbox } from '@/components/worktree/ItemSelectCheckbox'
 import {
   contextLinkMatchLabel,
   openContextLinkMatch,
@@ -119,6 +121,8 @@ interface ContextMentionPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelectContext: (item: ContextMentionItem, investigate?: boolean) => void
+  /** Enables multi-select of issues/PRs and one investigation for all of them */
+  onInvestigateInNewSession?: (items: ContextMentionItem[]) => void
   searchQuery: string
   anchorPosition: { top: number; left: number } | null
   containerWidth?: number
@@ -132,6 +136,7 @@ export function ContextMentionPopover({
   open,
   onOpenChange,
   onSelectContext,
+  onInvestigateInNewSession,
   searchQuery,
   anchorPosition,
   containerWidth,
@@ -149,6 +154,11 @@ export function ContextMentionPopover({
   const [, setLimitsVersion] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
+  // Keyed by item id; kept across searches so items from several searches
+  // can be investigated together
+  const [checkedItems, setCheckedItems] = useState<
+    Map<string, ContextMentionItem>
+  >(() => new Map())
   const query = menuSearch || searchQuery
   const limitKey = (group: 'issue' | 'pr') =>
     `${limitKeyPrefix(projectPath, projectId)}${includeClosed}\0${group}\0${query}`
@@ -256,8 +266,41 @@ export function ContextMentionPopover({
   }, [open, searchQuery, projectPath, resetListPosition])
 
   useEffect(() => {
-    if (open) setMenuSearch('')
+    if (!open) return
+    setMenuSearch('')
+    setCheckedItems(new Map())
   }, [open])
+
+  const toggleChecked = useCallback(
+    (item: ContextMentionItem, checked: boolean) => {
+      setCheckedItems(prev => {
+        const next = new Map(prev)
+        if (checked) next.set(item.id, item)
+        else next.delete(item.id)
+        return next
+      })
+    },
+    []
+  )
+
+  const handleInvestigateChecked = useCallback(() => {
+    if (!onInvestigateInNewSession) return
+    // Skip items that already have an investigation, like single Investigate
+    const items = [...checkedItems.values()]
+    const fresh = items.filter(item => {
+      const linkRef = getLinkRef(item)
+      return !linkRef || getMatches(linkRef).length === 0
+    })
+    const skipped = items.length - fresh.length
+    if (skipped > 0) {
+      toast.info(
+        `Skipped ${skipped} already investigated ${skipped === 1 ? 'item' : 'items'}`
+      )
+    }
+    if (fresh.length === 0) return
+    onOpenChange(false)
+    onInvestigateInNewSession(fresh)
+  }, [checkedItems, getMatches, onInvestigateInNewSession, onOpenChange])
 
   useImperativeHandle(
     handleRef,
@@ -425,6 +468,18 @@ export function ContextMentionPopover({
                           isSelected && '!bg-accent !text-accent-foreground'
                         )}
                       >
+                        {onInvestigateInNewSession &&
+                          (item.type === 'issue' || item.type === 'pr') && (
+                            <div className="self-center">
+                              <ItemSelectCheckbox
+                                checked={checkedItems.has(item.id)}
+                                ariaLabel={`Select ${item.label}`}
+                                onCheckedChange={checked =>
+                                  toggleChecked(item, checked)
+                                }
+                              />
+                            </div>
+                          )}
                         <div className="min-w-0 flex-1 self-center line-clamp-2 break-words text-sm">
                           <span className="mr-2 font-mono text-xs text-muted-foreground">
                             {item.label}
@@ -543,6 +598,14 @@ export function ContextMentionPopover({
             )}
           </CommandList>
         </Command>
+        {onInvestigateInNewSession && checkedItems.size > 0 && (
+          <BulkInvestigateBar
+            count={checkedItems.size}
+            actionLabel={`Investigate ${checkedItems.size} in new session`}
+            onClear={() => setCheckedItems(new Map())}
+            onInvestigate={handleInvestigateChecked}
+          />
+        )}
       </PopoverContent>
       {projectPath && previewTarget && (
         <IssuePreviewModal
