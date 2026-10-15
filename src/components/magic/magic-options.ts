@@ -160,7 +160,7 @@ export function buildMagicColumns(hasOpenPr: boolean): MagicColumns {
         },
         {
           id: 'commit-in-session',
-          label: 'Commit in Session',
+          label: 'Commit This Session',
           icon: GitCommitHorizontal,
           key: 'L',
         },

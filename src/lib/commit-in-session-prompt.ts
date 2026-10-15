@@ -1,5 +1,5 @@
 /**
- * One-line prompt for the "Commit in Session" magic command. The active chat
+ * One-line prompt for the "Commit This Session" magic command. The active chat
  * backend does the commit, so it follows the same "Closes #N" setting as the
  * Commit magic prompt, for the worktree issue and any issue loaded in context.
  */

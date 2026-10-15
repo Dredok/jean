@@ -864,7 +864,7 @@ describe('MagicModal manual PR link', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
     render(<MagicModal />)
 
-    await user.click(screen.getByRole('button', { name: /commit in session/i }))
+    await user.click(screen.getByRole('button', { name: /commit this session/i }))
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
