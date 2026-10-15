@@ -538,7 +538,18 @@ describe('ContextMentionPopover', () => {
       screen.getByRole('button', { name: 'Investigate 3 in new session' })
     )
 
-    expect(onInvestigateInNewSession).toHaveBeenCalledWith([items[0], items[1]])
+    expect(onInvestigateInNewSession).toHaveBeenCalledWith(
+      [items[0], items[1]],
+      false
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Investigate in 3 new sessions' })
+    )
+    expect(onInvestigateInNewSession).toHaveBeenLastCalledWith(
+      [items[0], items[1]],
+      true
+    )
     expect(toast.info).toHaveBeenCalledWith(
       'Skipped 1 already investigated item'
     )

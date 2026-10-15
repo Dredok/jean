@@ -121,8 +121,14 @@ interface ContextMentionPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelectContext: (item: ContextMentionItem, investigate?: boolean) => void
-  /** Enables multi-select of issues/PRs and one investigation for all of them */
-  onInvestigateInNewSession?: (items: ContextMentionItem[]) => void
+  /**
+   * Enables multi-select of issues/PRs. `separate` starts one new session per
+   * item; otherwise one new session investigates all of them.
+   */
+  onInvestigateInNewSession?: (
+    items: ContextMentionItem[],
+    separate: boolean
+  ) => void
   searchQuery: string
   anchorPosition: { top: number; left: number } | null
   containerWidth?: number
@@ -283,24 +289,27 @@ export function ContextMentionPopover({
     []
   )
 
-  const handleInvestigateChecked = useCallback(() => {
-    if (!onInvestigateInNewSession) return
-    // Skip items that already have an investigation, like single Investigate
-    const items = [...checkedItems.values()]
-    const fresh = items.filter(item => {
-      const linkRef = getLinkRef(item)
-      return !linkRef || getMatches(linkRef).length === 0
-    })
-    const skipped = items.length - fresh.length
-    if (skipped > 0) {
-      toast.info(
-        `Skipped ${skipped} already investigated ${skipped === 1 ? 'item' : 'items'}`
-      )
-    }
-    if (fresh.length === 0) return
-    onOpenChange(false)
-    onInvestigateInNewSession(fresh)
-  }, [checkedItems, getMatches, onInvestigateInNewSession, onOpenChange])
+  const handleInvestigateChecked = useCallback(
+    (separate: boolean) => {
+      if (!onInvestigateInNewSession) return
+      // Skip items that already have an investigation, like single Investigate
+      const items = [...checkedItems.values()]
+      const fresh = items.filter(item => {
+        const linkRef = getLinkRef(item)
+        return !linkRef || getMatches(linkRef).length === 0
+      })
+      const skipped = items.length - fresh.length
+      if (skipped > 0) {
+        toast.info(
+          `Skipped ${skipped} already investigated ${skipped === 1 ? 'item' : 'items'}`
+        )
+      }
+      if (fresh.length === 0) return
+      onOpenChange(false)
+      onInvestigateInNewSession(fresh, separate)
+    },
+    [checkedItems, getMatches, onInvestigateInNewSession, onOpenChange]
+  )
 
   useImperativeHandle(
     handleRef,
@@ -603,7 +612,13 @@ export function ContextMentionPopover({
             count={checkedItems.size}
             actionLabel={`Investigate ${checkedItems.size} in new session`}
             onClear={() => setCheckedItems(new Map())}
-            onInvestigate={handleInvestigateChecked}
+            secondaryActionLabel={
+              checkedItems.size > 1
+                ? `Investigate in ${checkedItems.size} new sessions`
+                : undefined
+            }
+            onSecondaryAction={() => handleInvestigateChecked(true)}
+            onInvestigate={() => handleInvestigateChecked(false)}
           />
         )}
       </PopoverContent>

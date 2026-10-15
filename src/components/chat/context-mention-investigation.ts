@@ -79,7 +79,7 @@ export function buildInvestigatePrompt(
 
 /**
  * Create a new session in the worktree, load every item into its context,
- * and queue one investigation that covers all of them. Opens the new session.
+ * and queue one investigation that covers all of them.
  */
 export async function investigateInNewSession({
   items,
@@ -88,6 +88,7 @@ export async function investigateInNewSession({
   projectId,
   issueTemplate,
   prTemplate,
+  openSession,
 }: {
   items: ContextMentionItem[]
   worktreeId: string
@@ -95,6 +96,7 @@ export async function investigateInNewSession({
   projectId: string | null | undefined
   issueTemplate: string | null | undefined
   prTemplate: string | null | undefined
+  openSession: boolean
 }): Promise<void> {
   const session = await invoke<Session>('create_session', {
     worktreeId,
@@ -117,7 +119,7 @@ export async function investigateInNewSession({
     {
       sessionId: session.id,
       prompt: buildInvestigatePrompt(items, issueTemplate, prTemplate),
-      openSession: true,
+      openSession,
     }
   )
 }

@@ -27,6 +27,8 @@ import {
 } from './FileMentionPopover'
 import { queryClient } from '@/lib/query-client'
 import { fileQueryKeys } from '@/services/files'
+import { logger } from '@/lib/logger'
+import { reportBulkInvestigateResults } from '@/components/worktree/bulkInvestigateUtils'
 import {
   investigateInNewSession,
   loadContextMentionItem,
@@ -1193,7 +1195,7 @@ export const ChatInput = memo(function ChatInput({
   )
 
   const handleInvestigateInNewSession = useCallback(
-    async (items: ContextMentionItem[]) => {
+    async (items: ContextMentionItem[], separate: boolean) => {
       if (!activeWorktreeId || !activeWorktreePath) return
 
       // Drop the `#query` mention that opened the menu
@@ -1218,24 +1220,62 @@ export const ChatInput = memo(function ChatInput({
       setHashTriggerIndex(null)
       setContextMentionQuery('')
 
-      const toastId = toast.loading(
-        `Starting investigation of ${items.length} items in a new session...`
-      )
-      try {
-        await investigateInNewSession({
-          items,
+      const investigate = (batch: ContextMentionItem[], openSession: boolean) =>
+        investigateInNewSession({
+          items: batch,
           worktreeId: activeWorktreeId,
           worktreePath: activeWorktreePath,
           projectId: activeProjectId,
           issueTemplate: investigateIssuePrompt,
           prTemplate: investigatePRPrompt,
+          openSession,
         })
-        toast.success(`Investigating ${items.length} items in a new session`, {
-          id: toastId,
-        })
-      } catch (error) {
-        toast.error(`Failed to start investigation: ${error}`, { id: toastId })
+
+      if (!separate) {
+        const toastId = toast.loading(
+          `Starting investigation of ${items.length} items in a new session...`
+        )
+        try {
+          await investigate(items, true)
+          toast.success(
+            `Investigating ${items.length} items in a new session`,
+            { id: toastId }
+          )
+        } catch (error) {
+          toast.error(`Failed to start investigation: ${error}`, {
+            id: toastId,
+          })
+        }
+        return
       }
+
+      // One background session per item. Sequential, so concurrent
+      // create_session calls do not race on the worktree's session index.
+      const toastId = toast.loading(
+        `Starting ${items.length} investigations in new sessions...`
+      )
+      let succeeded = 0
+      for (const item of items) {
+        try {
+          await investigate([item], false)
+          succeeded += 1
+        } catch (error) {
+          logger.error('Context investigation failed', { item: item.id, error })
+        }
+      }
+      // Starting an investigation selects its session; stay where the user was
+      if (activeSessionId) {
+        useChatStore
+          .getState()
+          .setActiveSession(activeWorktreeId, activeSessionId)
+      }
+      reportBulkInvestigateResults(
+        toastId,
+        succeeded,
+        items.length - succeeded,
+        'item',
+        'items'
+      )
     },
     [
       activeProjectId,
