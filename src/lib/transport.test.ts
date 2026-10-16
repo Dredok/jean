@@ -868,4 +868,30 @@ describe('transport bootstrap', () => {
 
     expect(onDisconnect).toHaveBeenCalledOnce()
   })
+
+  it('uploads attachments to the remote server over HTTP, not the WebSocket', async () => {
+    const transport = await loadRemoteNativeTransportModule()
+    const saved = { id: 'f1', filename: 'clip.mp4', path: '/p/clip', size: 3 }
+    vi.mocked(fetch).mockImplementation(async input =>
+      String(input).includes('/api/pasted-files')
+        ? ({ ok: true, status: 200, json: async () => saved } as Response)
+        : ({
+            ok: true,
+            json: async () => ({ ok: true, appVersion: FALLBACK_APP_VERSION }),
+          } as Response)
+    )
+    const file = new File(['abc'], 'clip.mp4', { type: 'video/mp4' })
+
+    await expect(transport.savePastedFile(file, 'session-1')).resolves.toEqual(
+      saved
+    )
+
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => String(url).includes('/api/pasted-files'))
+    expect(String(call?.[0])).toBe(
+      'https://jean.example.com/api/pasted-files?filename=clip.mp4&token=secret'
+    )
+    expect(call?.[1]).toEqual({ method: 'POST', body: file })
+  })
 })
