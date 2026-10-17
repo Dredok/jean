@@ -151,10 +151,11 @@ describe('useContextLinkUsage', () => {
       )
     )
     const [match] = result.current.getMatches({ type: 'issue', id: 40 })
+    if (!match) throw new Error('Expected a context link match')
     expect(result.current.currentWorktreeId).toBe('wt-b')
-    expect(
-      contextLinkMatchLabel(match!, result.current.currentWorktreeId)
-    ).toBe('Chat')
-    expect(contextLinkMatchLabel(match!)).toBe('feature › Chat')
+    expect(contextLinkMatchLabel(match, result.current.currentWorktreeId)).toBe(
+      'Chat'
+    )
+    expect(contextLinkMatchLabel(match)).toBe('feature › Chat')
   })
 })
