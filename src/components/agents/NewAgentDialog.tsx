@@ -102,11 +102,10 @@ export function NewAgentDialog({
         <DialogHeader>
           <DialogTitle>New agent</DialogTitle>
           <DialogDescription>
-            An agent has its own chat, memory and schedules. Jean gives it
-            access to all your projects through the Jean MCP tools.
+            Its own chat, memory, and schedules, with access to your projects.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           {servers.length > 1 && (
             <div className="space-y-1.5">
               <Label htmlFor="agent-server">Server</Label>
@@ -124,9 +123,6 @@ export function NewAgentDialog({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <p className="text-xs text-muted-foreground">
-                The agent runs on this Jean server and manages its projects.
-              </p>
             </div>
           )}
           <div className="space-y-1.5">
@@ -182,12 +178,21 @@ export function NewAgentDialog({
             />
           </div>
           {open && (
-            <AgentRunFields
-              idPrefix="new-agent"
-              serverId={targetServerId}
-              value={run}
-              onChange={setRun}
-            />
+            <div className="flex flex-col gap-3 border-t pt-4">
+              <h3 className="text-sm font-medium">
+                Run configuration{' '}
+                <span className="font-normal text-muted-foreground">
+                  · optional
+                </span>
+              </h3>
+              <AgentRunFields
+                idPrefix="new-agent"
+                serverId={targetServerId}
+                value={run}
+                onChange={setRun}
+                popoverClassName="z-[100]"
+              />
+            </div>
           )}
         </div>
         <DialogFooter>
