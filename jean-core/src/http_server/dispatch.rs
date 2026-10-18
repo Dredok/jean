@@ -4092,6 +4092,11 @@ const AGENT_COMMANDS: &[&str] = &[
     "save_agent_journal",
     "search_agent_journal",
     "mark_agent_notifications_read",
+    // Subagent types. Own block so a later rebase can move these names.
+    "list_agent_subagent_types",
+    "save_agent_subagent_type",
+    "delete_agent_subagent_type",
+    "spawn_agent_subagent",
     "revert_agent_change",
     "get_agent_connector_catalog",
 ];
@@ -4289,6 +4294,37 @@ async fn dispatch_agents_command(
             "export_agent_memory" => {
                 let agent_id: String = field(args, "agentId", "agent_id")?;
                 to_value(crate::agents::commands::export_memory(app, &agent_id)?)
+            }
+            // Subagent types. Own arms so a later rebase can move this block.
+            "list_agent_subagent_types" => {
+                let agent_id: String = field(args, "agentId", "agent_id")?;
+                to_value(crate::agents::with_db(app, |conn| {
+                    crate::agents::db::list_subagent_types(conn, &agent_id)
+                })?)
+            }
+            "save_agent_subagent_type" => {
+                let agent_id: String = field(args, "agentId", "agent_id")?;
+                let input: crate::agents::commands::SubagentTypeCommandInput =
+                    serde_json::from_value(args.clone())
+                        .map_err(|error| format!("Invalid subagent type: {error}"))?;
+                to_value(crate::agents::commands::save_subagent_type(
+                    app, &agent_id, input,
+                )?)
+            }
+            "delete_agent_subagent_type" => {
+                let agent_id: String = field(args, "agentId", "agent_id")?;
+                let id: i64 = field(args, "typeId", "type_id")?;
+                crate::agents::commands::delete_subagent_type(app, &agent_id, id)?;
+                Ok(Value::Null)
+            }
+            "spawn_agent_subagent" => {
+                let agent_id: String = field(args, "agentId", "agent_id")?;
+                let type_name: String = field(args, "typeName", "type_name")?;
+                let task: String = from_field(args, "task")?;
+                to_value(
+                    crate::agents::commands::spawn_subagent(app, &agent_id, &type_name, &task)
+                        .await?,
+                )
             }
             "revert_agent_change" => {
                 let change_id: i64 = field(args, "changeId", "change_id")?;
