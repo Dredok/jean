@@ -15,6 +15,14 @@ import {
 
 export type AgentStatus = 'idle' | 'working' | 'waiting' | 'paused'
 
+/** A skill file discovered for one backend and selected for this agent. */
+export interface AgentSkill {
+  name: string
+  path: string
+  /** Backend the skill was discovered for */
+  backend?: string | null
+}
+
 export interface AgentSummary {
   /** Agent key: raw ID on the local server, `serverId:id` on a remote one */
   id: string
@@ -42,6 +50,19 @@ export interface AgentSummary {
   unreadNotifications: number
   /** One line about the latest activity (chat reply, notification, task) */
   activity: string | null
+  /**
+   * Backend this agent's sessions use. Null keeps the current session and
+   * user default.
+   */
+  backend: string | null
+  /** Model id for that backend. Null keeps the backend's current default. */
+  model: string | null
+  /** Effort level (`low`, `high`, …). Null leaves effort unset. */
+  effort: string | null
+  /** Thinking level (`off`, `think`, `ultrathink`, …). Null leaves it unset. */
+  thinkingLevel: string | null
+  /** Skill files injected into this agent's prompt and wake-ups. */
+  skills: AgentSkill[]
 }
 
 export interface AgentTask {
@@ -136,6 +157,13 @@ export interface AgentPatch {
   rolePrompt?: string
   paused?: boolean
   maxWakesPerHour?: number
+  /** Null clears the field so the agent uses current defaults again. */
+  backend?: string | null
+  model?: string | null
+  effort?: string | null
+  thinkingLevel?: string | null
+  /** Replaces the selected skills. An empty list clears them. */
+  skills?: AgentSkill[]
 }
 
 export const agentsQueryKeys = {
@@ -147,15 +175,30 @@ export const agentsQueryKeys = {
     [...agentsQueryKeys.all, 'workdir', agentId] as const,
 }
 
-type RawAgentSummary = Omit<AgentSummary, 'serverId' | 'serverName'>
+type AgentRunKeys = 'backend' | 'model' | 'effort' | 'thinkingLevel' | 'skills'
+
+/** `list_agents` result. Older servers do not send the run configuration. */
+type RawAgentSummary = Omit<
+  AgentSummary,
+  'serverId' | 'serverName' | AgentRunKeys
+> &
+  Partial<Pick<AgentSummary, AgentRunKeys>>
 
 /** Tag an agent with its server; remote IDs become server-scoped keys so
  * commands and chat sessions route to that server. */
 export function scopeAgentSummary(
   serverId: string,
   serverName: string,
-  agent: RawAgentSummary
+  raw: RawAgentSummary
 ): AgentSummary {
+  const agent = {
+    ...raw,
+    backend: raw.backend ?? null,
+    model: raw.model ?? null,
+    effort: raw.effort ?? null,
+    thinkingLevel: raw.thinkingLevel ?? null,
+    skills: raw.skills ?? [],
+  }
   if (serverId === LOCAL_SERVER_ID) return { ...agent, serverId, serverName }
   const scope = (resourceId: string) =>
     serverResourceKey({ serverId, resourceId })
@@ -294,6 +337,11 @@ export function useCreateAgent() {
       description: string
       icon: string
       rolePrompt: string
+      backend?: string | null
+      model?: string | null
+      effort?: string | null
+      thinkingLevel?: string | null
+      skills?: AgentSkill[]
     }): Promise<{ key: string; name: string }> => {
       const agent = await invokeForServer<{ id: string; name: string }>(
         serverId,

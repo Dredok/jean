@@ -377,7 +377,7 @@ fn should_clear_stale_resumed_claude_session(
         && !has_usage
 }
 
-fn default_model_for_backend(
+pub(crate) fn default_model_for_backend(
     backend: &Backend,
     preferences: &crate::AppPreferences,
 ) -> Option<String> {
@@ -6094,6 +6094,40 @@ pub async fn set_session_effort_level(
         if let Some(session) = sessions.find_session_mut(&session_id) {
             session.selected_effort_level = Some(effort_level);
             log::trace!("Effort level selection saved");
+            Ok(())
+        } else {
+            Err(format!("Session not found: {session_id}"))
+        }
+    })
+}
+
+/// Clear the selected thinking level so the session uses the default again
+pub async fn clear_session_thinking_level(
+    app: AppHandle,
+    worktree_id: String,
+    worktree_path: String,
+    session_id: String,
+) -> Result<(), String> {
+    with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
+        if let Some(session) = sessions.find_session_mut(&session_id) {
+            session.selected_thinking_level = None;
+            Ok(())
+        } else {
+            Err(format!("Session not found: {session_id}"))
+        }
+    })
+}
+
+/// Clear the selected effort level so the session uses the default again
+pub async fn clear_session_effort_level(
+    app: AppHandle,
+    worktree_id: String,
+    worktree_path: String,
+    session_id: String,
+) -> Result<(), String> {
+    with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
+        if let Some(session) = sessions.find_session_mut(&session_id) {
+            session.selected_effort_level = None;
             Ok(())
         } else {
             Err(format!("Session not found: {session_id}"))

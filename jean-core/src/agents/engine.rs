@@ -18,7 +18,7 @@ use tauri::AppHandle;
 use tokio::sync::Notify;
 
 use super::db;
-use crate::chat::types::{MessageRole, RunStatus};
+use crate::chat::types::{Backend, EffortLevel, MessageRole, RunStatus, ThinkingLevel};
 
 const TICK: Duration = Duration::from_secs(5);
 /// Wait after a run ends before reading its final state (waiting-for-input
@@ -367,6 +367,23 @@ pub(crate) async fn home_session(
     Ok((session, path))
 }
 
+/// Put the agent's run configuration on its home chat while that chat is
+/// unused, so the toolbar shows it. Called when the agent is created or its
+/// configuration changes, not on every list, so a choice the user makes in
+/// the toolbar before the first message is kept.
+pub(crate) async fn apply_run_config_to_home(
+    app: &AppHandle,
+    agent: &db::Agent,
+) -> Result<(), String> {
+    let (mut session, path) = home_session(app, agent).await?;
+    if !should_stamp_agent_run(session.total_runs, session.message_count.unwrap_or(0))
+        || crate::chat::registry::is_session_actively_managed(&session.id)
+    {
+        return Ok(());
+    }
+    stamp_agent_run_config(app, agent, &agent.worktree_id, &path, &mut session).await
+}
+
 /// Save the default execution mode once on a session that has none yet.
 async fn ensure_session_mode(
     app: &AppHandle,
@@ -409,6 +426,272 @@ pub(crate) fn wake_execution_mode(selected: Option<&str>) -> Option<&'static str
     }
 }
 
+/// Cursor has no Build mode. Wakes still have to leave Plan, so they use Yolo.
+pub(crate) fn wake_execution_mode_for(
+    selected: Option<&str>,
+    backend: Option<&str>,
+) -> Option<&'static str> {
+    if backend == Some("cursor") {
+        return match selected {
+            Some("yolo") => None,
+            _ => Some("yolo"),
+        };
+    }
+    wake_execution_mode(selected)
+}
+
+/// Only an unused session is stamped. A used session changes backend on the
+/// next wake instead: `send_chat_message` saves the wake's backend and hands
+/// the history over to it.
+pub(crate) fn should_stamp_agent_run(total_runs: usize, message_count: u32) -> bool {
+    total_runs == 0 && message_count == 0
+}
+
+fn trimmed_opt(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn backend_id(backend: &Backend) -> &'static str {
+    match backend {
+        Backend::Claude => "claude",
+        Backend::Codex => "codex",
+        Backend::Opencode => "opencode",
+        Backend::Cursor => "cursor",
+        Backend::Pi => "pi",
+        Backend::Commandcode => "commandcode",
+        Backend::Grok => "grok",
+        Backend::Kimi => "kimi",
+        Backend::Antigravity => "antigravity",
+    }
+}
+
+/// Explicit `send_chat_message` fields for a wake. Unset agent fields are omitted
+/// so the session and user defaults apply.
+pub(crate) fn agent_wake_overrides(agent: &db::Agent) -> Value {
+    let mut overrides = json!({});
+    if let Some(backend) = trimmed_opt(&agent.backend) {
+        overrides["backend"] = json!(backend);
+    }
+    if let Some(model) = trimmed_opt(&agent.model) {
+        overrides["model"] = json!(model);
+    }
+    if let Some(effort) = trimmed_opt(&agent.effort) {
+        overrides["effortLevel"] = json!(effort);
+    }
+    if let Some(thinking) = trimmed_opt(&agent.thinking_level) {
+        overrides["thinkingLevel"] = json!(thinking);
+    }
+    overrides
+}
+
+/// A chosen backend with no model must not keep another backend's session model.
+/// Fill the preference default for that backend.
+pub(crate) fn wake_needs_default_model(agent: &db::Agent) -> bool {
+    trimmed_opt(&agent.backend).is_some() && trimmed_opt(&agent.model).is_none()
+}
+
+pub(crate) fn fill_wake_model(overrides: &mut Value, default_model: Option<&str>) {
+    let has_backend = overrides
+        .get("backend")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty());
+    let has_model = overrides
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty());
+    if has_backend && !has_model {
+        if let Some(model) = default_model
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            overrides["model"] = json!(model);
+        }
+    }
+}
+
+/// Append skill markers that are not already in the message.
+pub(crate) fn message_with_agent_skills(message: &str, skills: &[db::AgentSkill]) -> String {
+    let refs: Vec<String> = skills
+        .iter()
+        .filter_map(|skill| {
+            let path = skill.path.trim();
+            if path.is_empty() {
+                return None;
+            }
+            let marker = super::skill_instruction(path);
+            if message.contains(&marker) {
+                None
+            } else {
+                Some(marker)
+            }
+        })
+        .collect();
+    if refs.is_empty() {
+        return message.to_string();
+    }
+    let mut out = message.trim_end().to_string();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(&refs.join("\n"));
+    out
+}
+
+/// Create a task or rotated chat on the agent's backend, then store its model
+/// and reasoning choices.
+async fn open_agent_session(
+    app: &AppHandle,
+    agent: &db::Agent,
+    worktree_id: &str,
+    path: &str,
+    name: Option<String>,
+) -> Result<crate::chat::types::Session, String> {
+    let mut session = crate::chat::create_session(
+        app.clone(),
+        worktree_id.to_string(),
+        path.to_string(),
+        name,
+        agent.backend.clone(),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    ensure_session_mode(app, worktree_id, path, &mut session).await?;
+    if let Err(e) = stamp_agent_run_config(app, agent, worktree_id, path, &mut session).await {
+        log::warn!(
+            "[Agents] run config for {} was not saved on {}: {e}",
+            agent.id,
+            session.id
+        );
+    }
+    Ok(session)
+}
+
+/// Persist the agent's backend, model, and reasoning on a session that has no
+/// messages yet. Unset backend and model mean what a new chat would use: the
+/// preference backend and that backend's preference model. Unset effort and
+/// thinking clear any stored choice.
+async fn stamp_agent_run_config(
+    app: &AppHandle,
+    agent: &db::Agent,
+    worktree_id: &str,
+    path: &str,
+    session: &mut crate::chat::types::Session,
+) -> Result<(), String> {
+    let prefs = crate::load_preferences(app.clone()).await.ok();
+    let backend: Backend =
+        serde_json::from_value(json!(trimmed_opt(&agent.backend)
+            .or(prefs.as_ref().map(|prefs| prefs.default_backend.as_str()))))
+        .unwrap_or_default();
+    if session.backend != backend {
+        crate::chat::set_session_backend(
+            app.clone(),
+            worktree_id.to_string(),
+            path.to_string(),
+            session.id.clone(),
+            backend_id(&backend).to_string(),
+        )
+        .await?;
+        session.backend = backend;
+    }
+    if session.backend == Backend::Cursor
+        && session.selected_execution_mode.as_deref() == Some("build")
+    {
+        crate::chat::set_session_execution_mode(
+            app.clone(),
+            worktree_id.to_string(),
+            path.to_string(),
+            session.id.clone(),
+            "yolo".to_string(),
+        )
+        .await?;
+        session.selected_execution_mode = Some("yolo".to_string());
+    }
+    let model = trimmed_opt(&agent.model).map(str::to_string).or_else(|| {
+        prefs
+            .as_ref()
+            .and_then(|prefs| crate::chat::default_model_for_backend(&session.backend, prefs))
+    });
+    if let Some(model) = model {
+        if session.selected_model.as_deref() != Some(model.as_str()) {
+            crate::chat::set_session_model(
+                app.clone(),
+                worktree_id.to_string(),
+                path.to_string(),
+                session.id.clone(),
+                model.clone(),
+            )
+            .await?;
+            session.selected_model = Some(model);
+        }
+    }
+    if let Some(effort) = trimmed_opt(&agent.effort) {
+        if session
+            .selected_effort_level
+            .as_ref()
+            .map(EffortLevel::as_str)
+            != Some(effort)
+        {
+            let parsed: EffortLevel = serde_json::from_value(json!(effort))
+                .unwrap_or_else(|_| EffortLevel::Other(effort.to_string()));
+            crate::chat::set_session_effort_level(
+                app.clone(),
+                worktree_id.to_string(),
+                path.to_string(),
+                session.id.clone(),
+                parsed.clone(),
+            )
+            .await?;
+            session.selected_effort_level = Some(parsed);
+        }
+    } else if session.selected_effort_level.is_some() {
+        crate::chat::clear_session_effort_level(
+            app.clone(),
+            worktree_id.to_string(),
+            path.to_string(),
+            session.id.clone(),
+        )
+        .await?;
+        session.selected_effort_level = None;
+    }
+    if let Some(thinking) = trimmed_opt(&agent.thinking_level) {
+        if session
+            .selected_thinking_level
+            .as_ref()
+            .map(ThinkingLevel::thinking_value)
+            != Some(thinking)
+        {
+            let parsed: ThinkingLevel = serde_json::from_value(json!(thinking))
+                .unwrap_or_else(|_| ThinkingLevel::Other(thinking.to_string()));
+            crate::chat::set_session_thinking_level(
+                app.clone(),
+                worktree_id.to_string(),
+                path.to_string(),
+                session.id.clone(),
+                parsed.clone(),
+            )
+            .await?;
+            session.selected_thinking_level = Some(parsed);
+        }
+    } else if session.selected_thinking_level.is_some() {
+        crate::chat::clear_session_thinking_level(
+            app.clone(),
+            worktree_id.to_string(),
+            path.to_string(),
+            session.id.clone(),
+        )
+        .await?;
+        session.selected_thinking_level = None;
+    }
+    Ok(())
+}
+
 pub(crate) fn compose_update(events: &[db::AgentEvent]) -> String {
     let mut message =
         String::from("[Jean agent update] Automatic message from Jean, not from the user.\n");
@@ -438,26 +721,62 @@ fn agent_session_location(
 }
 
 /// Send `message` to a session as a new turn (never in Plan mode).
+/// The agent's backend, model, effort, thinking, and skills override the
+/// session for this turn. Unset fields stay on the session and user defaults.
 fn send_to_session(
     app: &AppHandle,
-    agent_id: &str,
+    agent: &db::Agent,
     session: &crate::chat::types::Session,
     worktree_id: &str,
     path: &str,
     message: String,
 ) {
-    let mut payload = json!({
-        "sessionId": session.id,
-        "worktreeId": worktree_id,
-        "worktreePath": path,
-        "message": message,
-    });
-    if let Some(mode) = wake_execution_mode(session.selected_execution_mode.as_deref()) {
-        payload["executionMode"] = json!(mode);
-    }
     let app_clone = app.clone();
-    let agent_name = agent_id.to_string();
+    let agent_name = agent.id.clone();
+    let session_id = session.id.clone();
+    let backend = trimmed_opt(&agent.backend)
+        .map(str::to_string)
+        .unwrap_or_else(|| backend_id(&session.backend).to_string());
+    let mode = wake_execution_mode_for(
+        session.selected_execution_mode.as_deref(),
+        Some(backend.as_str()),
+    );
+    let mut overrides = agent_wake_overrides(agent);
+    let needs_default_model = wake_needs_default_model(agent);
+    let backend_for_model = agent.backend.clone();
+    let message = message_with_agent_skills(&message, &agent.skills);
+    let worktree_id = worktree_id.to_string();
+    let path = path.to_string();
     tauri::async_runtime::spawn(async move {
+        if needs_default_model {
+            match crate::load_preferences(app_clone.clone()).await {
+                Ok(prefs) => {
+                    let parsed = serde_json::from_value::<Backend>(json!(
+                        backend_for_model.unwrap_or_default()
+                    ))
+                    .unwrap_or_default();
+                    let model = crate::chat::default_model_for_backend(&parsed, &prefs);
+                    fill_wake_model(&mut overrides, model.as_deref());
+                }
+                Err(e) => {
+                    log::warn!("[Agents] default model for {agent_name} was not loaded: {e}")
+                }
+            }
+        }
+        let mut payload = json!({
+            "sessionId": session_id,
+            "worktreeId": worktree_id,
+            "worktreePath": path,
+            "message": message,
+        });
+        if let Some(mode) = mode {
+            payload["executionMode"] = json!(mode);
+        }
+        if let Some(map) = overrides.as_object() {
+            for (key, value) in map {
+                payload[key] = value.clone();
+            }
+        }
         if let Err(e) =
             crate::http_server::dispatch::dispatch_command(&app_clone, "send_chat_message", payload)
                 .await
@@ -557,7 +876,7 @@ async fn deliver(app: &AppHandle, agent_id: &str) -> Result<bool, String> {
         let owned: Vec<db::AgentEvent> = group.into_iter().cloned().collect();
         send_to_session(
             app,
-            &agent.id,
+            &agent,
             &session,
             &worktree_id,
             &path,
@@ -580,27 +899,16 @@ async fn deliver(app: &AppHandle, agent_id: &str) -> Result<bool, String> {
             .clone()
             .filter(|t| !t.trim().is_empty())
             .unwrap_or_else(|| task_title_for(&event.kind).to_string());
-        let mut session = crate::chat::create_session(
-            app.clone(),
-            worktree_id.clone(),
-            path.clone(),
-            Some(truncate(&title, 60)),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-        ensure_session_mode(app, &worktree_id, &path, &mut session).await?;
+        let session =
+            open_agent_session(app, &agent, &worktree_id, &path, Some(truncate(&title, 60)))
+                .await?;
         super::with_db(app, |conn| {
             db::create_task(conn, &agent.id, &session.id, &title, &event.kind)?;
             record_delivery(conn, &agent.id, &[event], &session.id, &worktree_id)
         })?;
         send_to_session(
             app,
-            &agent.id,
+            &agent,
             &session,
             &worktree_id,
             &path,
@@ -708,17 +1016,12 @@ async fn rotate_chat_if_long(app: &AppHandle, agent: &db::Agent) -> Result<bool,
     .await?;
     let carry_over = crate::chat::handoff::format_handoff_history(&old.messages, CARRY_OVER_CHARS);
     let number = sessions.sessions.len() + 1;
-    let new = crate::chat::create_session(
-        app.clone(),
-        agent.worktree_id.clone(),
-        path.clone(),
+    let new = open_agent_session(
+        app,
+        agent,
+        &agent.worktree_id,
+        &path,
         Some(format!("Chat {number}")),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
     )
     .await?;
     crate::chat::set_active_session(
@@ -867,6 +1170,95 @@ mod tests {
         assert_eq!(wake_execution_mode(None), Some("build"));
         assert_eq!(wake_execution_mode(Some("build")), None);
         assert_eq!(wake_execution_mode(Some("yolo")), None);
+        assert_eq!(
+            wake_execution_mode_for(Some("plan"), Some("cursor")),
+            Some("yolo")
+        );
+        assert_eq!(
+            wake_execution_mode_for(Some("build"), Some("cursor")),
+            Some("yolo")
+        );
+        assert_eq!(wake_execution_mode_for(Some("yolo"), Some("cursor")), None);
+        assert_eq!(
+            wake_execution_mode_for(Some("plan"), Some("codex")),
+            Some("build")
+        );
+    }
+
+    fn sample_agent() -> db::Agent {
+        db::Agent {
+            id: "reviewer".into(),
+            name: "Reviewer".into(),
+            description: String::new(),
+            icon: "blue".into(),
+            role_prompt: String::new(),
+            worktree_id: "__agent_reviewer__".into(),
+            paused: false,
+            max_wakes_per_hour: 12,
+            builtin: false,
+            backend: None,
+            model: None,
+            effort: None,
+            thinking_level: None,
+            skills: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn unset_agent_run_config_adds_no_wake_overrides() {
+        let overrides = agent_wake_overrides(&sample_agent());
+        assert_eq!(overrides, json!({}));
+        assert!(!wake_needs_default_model(&sample_agent()));
+        assert!(should_stamp_agent_run(0, 0));
+        assert!(!should_stamp_agent_run(1, 0));
+        assert!(!should_stamp_agent_run(0, 2));
+    }
+
+    #[test]
+    fn set_agent_run_config_overrides_backend_model_and_effort() {
+        let mut agent = sample_agent();
+        agent.backend = Some("codex".into());
+        agent.model = Some("gpt-5.5".into());
+        agent.effort = Some("high".into());
+        agent.thinking_level = Some("off".into());
+        let overrides = agent_wake_overrides(&agent);
+        assert_eq!(overrides["backend"], "codex");
+        assert_eq!(overrides["model"], "gpt-5.5");
+        assert_eq!(overrides["effortLevel"], "high");
+        assert_eq!(overrides["thinkingLevel"], "off");
+        assert!(!wake_needs_default_model(&agent));
+
+        agent.model = None;
+        let mut overrides = agent_wake_overrides(&agent);
+        assert!(overrides.get("model").is_none());
+        assert!(wake_needs_default_model(&agent));
+        fill_wake_model(&mut overrides, Some("gpt-5.4"));
+        assert_eq!(overrides["model"], "gpt-5.4");
+        fill_wake_model(&mut overrides, Some("other"));
+        assert_eq!(overrides["model"], "gpt-5.4");
+    }
+
+    #[test]
+    fn skill_refs_use_the_chat_marker_and_skip_duplicates() {
+        let skills = vec![
+            db::AgentSkill {
+                name: "review".into(),
+                path: "/skills/review/SKILL.md".into(),
+                backend: Some("codex".into()),
+            },
+            db::AgentSkill {
+                name: String::new(),
+                path: "  ".into(),
+                backend: None,
+            },
+        ];
+        let marker = crate::agents::skill_instruction("/skills/review/SKILL.md");
+        let message = message_with_agent_skills("Check the release", &skills);
+        assert!(message.starts_with("Check the release\n\n"));
+        assert!(message.contains(&marker));
+        let again = message_with_agent_skills(&message, &skills);
+        assert_eq!(again.matches(&marker).count(), 1);
+        assert_eq!(message_with_agent_skills("only text", &[]), "only text");
     }
 
     #[test]
