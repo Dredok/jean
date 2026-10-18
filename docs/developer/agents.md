@@ -22,7 +22,7 @@ SQLite). Migrations are a list in `agents/db.rs` (`MIGRATIONS`, tracked with
 | `tasks` | One row per task session (background work): status, one-line result, archive state. |
 | `notifications` | `notify_user` messages (inbox, toast). |
 | `wakes` | One row per wake-up, for the hourly budget (`max_wakes_per_hour`). |
-| `schedules` | One-shot (`every_secs` NULL) and repeating wake-ups. |
+| `schedules` | One-shot, interval (`every_secs`), cron, and event routines. |
 | `approvals` | Destructive MCP calls that wait for the user. |
 | `memories` + `memories_fts` | Rules, facts, open work. `agent_id` NULL = shared. FTS5 kept in sync by triggers. |
 
@@ -120,7 +120,8 @@ chat:done / chat:error / chat:cancelled (in-process listener)
 tick (every 5s, or nudge())
   ├─ delegation checks ──► event with target = origin session
   ├─ task checks ──► task status + one-line result
-  ├─ due schedules ──► event without target
+  ├─ due schedules (one-shot, interval, cron) ──► event without target
+  │    event routines are queued by listeners, not by this tick
   ├─ deliver (not paused, within the hourly budget):
   │    ├─ target set ──► "[Jean agent update]" into that session when idle
   │    │                 (an archived old chat forwards to the current chat)
@@ -133,7 +134,10 @@ tick (every 5s, or nudge())
 
 Test overrides (environment, for isolated test servers only):
 `JEAN_AGENT_CHAT_ROTATE_MESSAGES`, `JEAN_AGENT_CHAT_ROTATE_IDLE_SECS`,
-`JEAN_AGENT_TASK_ARCHIVE_SECS`.
+`JEAN_AGENT_TASK_ARCHIVE_SECS`. `JEAN_AGENT_CLOCK_FILE` points at a file whose
+contents are a positive unix timestamp; `db::now()` returns that instead of the
+wall clock so a cron routine can be moved onto its next slot during a local
+run. Leave it unset in normal use.
 
 - Wake-ups never run in Plan mode (`wake_execution_mode`), because Plan mode
   blocks the Jean MCP tools. Cursor wakes use Yolo instead of Build
@@ -146,9 +150,85 @@ Test overrides (environment, for isolated test servers only):
 - At startup, active delegations are checked once, so runs that ended while
   Jean was closed are still reported.
 
+## Schedules
+
+Migration v4 adds `cron`, `timezone`, `event`, and `paused` to `schedules`,
+plus `schedule_event_keys` for event dedup. Do not edit v1–v3. Existing rows
+keep `cron`, `timezone`, and `event` NULL and `paused` 0, so one-shot
+(`every_secs` NULL) and interval schedules behave as before.
+
+| Kind | Stored as | Next run |
+|---|---|---|
+| One-shot | `every_secs`, `cron`, and `event` NULL; `next_run_at` set | Fires once, then `active=0` |
+| Interval | `every_secs` ≥ 300 | `next_run_at = fired_at + every_secs` |
+| Cron | 5-field `cron` plus an IANA `timezone` | Next match strictly after the fire time, in that zone |
+| Event | `event` set; `next_run_at` is 0 and is not a clock time | When the event happens |
+
+`paused=1` keeps the row but the engine skips it. Delete is the existing
+cancel (`active=0`). A paused agent still skips every schedule.
+
+### Cron
+
+Five fields: `minute hour day-of-month month day-of-week`. `*`, lists, ranges,
+steps, and English month/day names are accepted. `?` is rejected. When both
+day-of-month and day-of-week are restricted, a date matches if either field
+matches (standard cron). The timezone is stored on the schedule (the UI
+defaults to the browser zone; an omitted MCP timezone means UTC). Names that
+differ only by case still resolve.
+
+Next-run calculation walks local time in that zone:
+
+- A match is strictly after the previous instant, so the slot that just fired
+  is not chosen again.
+- Spring-forward gaps (the missing hour) are skipped. `30 2 * * *` on the US
+  spring-forward day runs the next day at 02:30.
+- Fall-back overlap hours are real twice. All matches in the earlier offset
+  come first, then all matches in the later offset. `*/5` runs every 5 minutes
+  through both passes.
+- If Jean was closed, a due cron fires once and then jumps to the next match
+  after the actual fire time. Missed slots are not replayed.
+
+Validation rejects an expression whose successive runs are closer than 300
+seconds, including a DST transition that would squeeze two matches together.
+That is the same 5-minute floor as `every_secs`. `*/5 * * * *` is allowed;
+`*/4` and `* * * * *` are not. Errors name the field or the gap.
+
+### Events
+
+Event routines wake through the same queue as cron: `fire_event_schedules`
+inserts a `schedule` event with no target, and the tick delivers it as a new
+task. Delivery already stops at `max_wakes_per_hour` and at two running tasks.
+A spent budget leaves the event queued; it is not dropped and it is not
+delivered early. These routines do not add a hop. If the woken task calls
+`message_agent`, that call still uses `MAX_AGENT_HOPS`.
+
+The same occurrence is stored in `schedule_event_keys`, so a merged PR does
+not queue twice. Session and archive keys include the second they happened,
+so each run of a session is a new occurrence. Changing the event type clears those
+keys. Pausing does not.
+
+| Event | Source | Not fired when |
+|---|---|---|
+| `session_finished` | `chat:done` | The session belongs to an agent (chat or task) or is an active delegation. Those already wake their agent, and a routine on them would loop. |
+| `session_failed` | `chat:error` | Same exclusion. `chat:cancelled` is not a trigger. |
+| `worktree_archived` | `worktree:archived` | The payload has no worktree id. |
+| `pr_merged` | `pr:status-update` whose `state` is `merged` | The same worktree and PR number already woke this routine. Open and closed PRs do not match. |
+| `approval_resolved` | `decide_approval`, after the result is queued back to the requesting session | The approval id already woke this routine. |
+
+Not included, on purpose:
+
+- **Usage-limit reset.** Codex stores `reset_at` on a usage snapshot, but Jean
+  does not emit an event when a window resets. Watching that would be a new
+  poller, not a hook on something that already happens.
+- **A message from another agent.** `message_agent` already queues a `message`
+  event for the target and records a hop. A second routine would wake that
+  agent twice for one request.
+- **An external webhook.** Jean has no inbound agent webhook. Adding one would
+  be a new server and a new trust boundary, not a small hook.
+
 ## MCP tools (`agents/mcp.rs`)
 
-Agent-only tools: `schedule_create/list/cancel`, `memory_save/search/update/forget`,
+Agent-only tools: `schedule_create/update/list/cancel`, `memory_save/search/update/forget`,
 `message_agent`, `notify_user` (emits `agents:notification` for the toast),
 `task_list`. The caller is identified by `JEAN_MCP_SESSION`. Codex threads
 get it per thread through a config override
@@ -173,9 +253,14 @@ sender's session) is recorded, so the answer returns to the session that asked.
 Registered in `http_server/dispatch.rs` (`AGENT_COMMANDS`, served by
 `dispatch_agents_command`), so native IPC and web access both work:
 `list_agents`, `get_agent_details`, `create_agent`, `update_agent`,
-`delete_agent`, `decide_agent_approval`, `cancel_agent_schedule`,
+`delete_agent`, `decide_agent_approval`, `create_agent_schedule`,
+`update_agent_schedule`, `cancel_agent_schedule`,
 `save/update/delete/export_agent_memory`, `mark_agent_notifications_read`,
 `get_agent_workdir`.
+`create_agent_schedule` takes `kind` (`once`, `interval`, `cron`, `event`)
+plus the fields for that kind (`delaySecs`, `everySecs`, `cron` + `timezone`,
+or `event`). `update_agent_schedule` patches `name`, `prompt`, `paused`, and,
+when `kind` is set, replaces the timing. Pause does not delete the routine.
 Changes emit `cache:invalidate` with key `agents`.
 
 ## Stack size note
@@ -186,3 +271,126 @@ debug builds their poll frames are large enough to overflow tokio's default
 separate function and call it through `Box::pin(...)`, as the agents commands
 do. All entry points use `jean_core::build_tokio_runtime()` (8 MiB worker
 stacks).
+
+## Per-agent connectors
+
+An agent can save an allowlist of the user's MCP servers and, separately, of
+Jean MCP tools. The columns are `agents.mcp_servers` and `agents.jean_tools`
+(JSON, nullable). Migration v5 in `agents/db.rs` adds them. Do not edit
+v1–v4. Existing rows stay `NULL`.
+
+| Stored value | Meaning |
+|---|---|
+| `NULL` | No limit. Today's behavior. |
+| `[]` | A saved limit that allows nothing (no user MCP servers, or no Jean tools). |
+| a JSON array | Only those entries. |
+
+`update_agent`'s patch uses a missing field for "leave it" and JSON `null` for
+"clear back to no limit". `get_agent_connector_catalog` returns which backends
+can apply a limit, the reason for each backend, and the Jean tool names.
+Resolution lives in `agents/connectors.rs`.
+
+### How MCP servers are discovered
+
+Discovery is per backend CLI, not per agent. `get_mcp_servers` reads that
+CLI's config files and then appends servers the CLI reported itself
+(`chat/mcp_external.rs`: claude.ai connectors, plugins, ChatGPT apps, remote
+config). The file readers are:
+
+| Backend | Config files | CLI list |
+|---|---|---|
+| Claude | `~/.claude.json` (`mcpServers` and `projects[path].mcpServers`), `<worktree>/.mcp.json` | `claude mcp list` for `claude.ai` and `plugin:` names |
+| Codex | `~/.codex/config.toml` and `<worktree>/.codex/config.toml` `[mcp_servers.*]` | app-server `mcpServerStatus/list` |
+| OpenCode | project, home, and `~/.config/opencode` `opencode.json` / `.jsonc` `mcp` object | `opencode mcp list` |
+| Cursor | `~/.cursor/mcp.json` and `<worktree>/.cursor/mcp.json` | `cursor-agent mcp list` |
+| Grok | `~/.grok/config.toml` and project `.grok/config.toml`, plus Claude, Cursor, and `.mcp.json` compat files | `grok mcp doctor --json` |
+| Kimi | `~/.kimi-code/mcp.json` and project `.kimi-code/mcp.json` | none |
+| Antigravity | `~/.gemini/config/mcp_config.json` and `<worktree>/.agents/mcp_config.json` | none |
+
+`get_mcp_servers` with an unknown backend, including Pi and Command Code,
+falls through to Claude's files. Agent settings only ask for a backend that
+has its own reader. An unknown backend name is not treated as that CLI's
+server list.
+
+External servers are cached per backend and worktree. Their `config` is only
+`{ jeanExternal: true, target }`. Jean must not pass that object as a server
+definition the CLI should spawn. Claude's `--mcp-config` path already strips
+those names and, when one is enabled, skips `--strict-mcp-config` and denies
+the other known servers instead.
+
+### How a session receives them
+
+The chat UI builds `mcpConfig` (`{"mcpServers":{name: config}}`) from the
+enabled names and sends it on `send_chat_message`. The cascade is session
+override, then project, then global defaults, then auto-enable of newly
+discovered servers (`resolveEnabledMcpServers`). Antigravity is forced on for
+every non-disabled server because the CLI has no per-run switch.
+
+| Backend | Per session? | What Jean actually does |
+|---|---|---|
+| Claude | Yes | `--mcp-config` and, when no external server is enabled, `--strict-mcp-config`. The flag drops every server that is not in the JSON, including the user's global config. |
+| Grok | Yes | ACP `mcpServers` on `session/new` and `session/load`. Jean also rewrites `disabled_mcp_servers` in `~/.grok/config.toml` for the turn and restores it after. Two Grok turns at once can race on that file. |
+| Cursor | No | `cursor mcp enable` / `disable` before launch. That changes shared workspace approval and is not restored. It is not a process-local config. |
+| Codex | No | `~/.codex/config.toml`. Thread start can override `mcp_servers.<jean>.env.JEAN_MCP_SESSION` so the Jean server sees the session id. It cannot replace the server list. `config/mcpServer/reload` reloads the shared config. |
+| OpenCode | No | The HTTP session has no MCP config argument. OpenCode reads `opencode.json`. |
+| Pi | No | No MCP argument on the session. |
+| Command Code | No | No MCP argument on the session. |
+| Kimi | No | ACP `session/new` and `session/resume` always send `mcpServers: []`. The CLI then uses its own config. Jean does not put servers into that list, and does not treat the empty array as a restriction it can edit. |
+| Antigravity | No | The CLI loads every enabled server from its persistent config. |
+
+For Claude, Grok, and Cursor, `send_chat_message` merges the Jean MCP entry
+into `mcpConfig` when Jean MCP is on. A wake that omits `mcpConfig` therefore
+starts those three with Jean MCP only. Codex, OpenCode, Pi, Command Code,
+Kimi, and Antigravity ignore that JSON and load whatever is installed
+globally, including Jean MCP when it was installed into that CLI's config.
+
+### In-app sign-in
+
+`prepare_mcp_login` (`chat/mcp_auth.rs`) works for Claude and Codex only. It
+checks the server is in `get_mcp_servers` for the worktree, then returns
+`mcp login --no-browser <name>` for the embedded login terminal. Other
+backends return an error. The button is `McpSignInButton` / `openMcpLogin`.
+OAuth itself stays inside the CLI. Agent settings reuse that button and pass
+the agent scratch folder as the worktree, which is where the agent session
+runs.
+
+### What the agent limit does
+
+`send_chat_message` calls `apply_agent_mcp_allowlist` before the Jean MCP
+merge, for every send, including engine wakes.
+
+- `mcp_servers` is `NULL`: the caller's `mcpConfig` is unchanged.
+- The session backend is Claude or Grok and a list is saved: replace
+  `mcpConfig` with only the discovered servers on that backend whose names are
+  in the list. A server saved for another backend is ignored for this turn.
+  Discovery failure replaces the config with `{"mcpServers":{}}` so a broader
+  caller config is not kept. Jean MCP is merged afterwards and is not removed
+  by this list.
+- Any other backend: leave `mcpConfig` unchanged and log that the limit was
+  not applied, with the reason above. The UI shows **Unsupported on this
+  backend** and disables the switches. There is no silent success.
+
+An empty saved list on Claude or Grok passes no user servers. That is
+different from `NULL`, where a chat can still send the session's own
+`mcpConfig`, and a wake still sends none.
+
+Jean tool names are a second allowlist, enforced in `call_tool` before the
+approval gate. `NULL` allows every tool. A list allows only those names.
+`claude_permission_prompt` stays callable so Claude's permission hook still
+works. Destructive tools that are allowed still wait for approval. The list
+applies only to the agent's own session. A session the agent starts with
+`create_session` or `send_chat_message` is a normal session with no limit, so
+leave those tools off when the limit must hold. The
+read-only agent tool `list_connectors` reports the saved limit, the discovered
+servers, and whether this backend applied the limit. It does not change
+anything and does not return server config (that can hold tokens).
+
+The settings section is **Connectors and tools** on the agent page. With no
+saved MCP limit the switches are off (nothing is selected). Turning one on
+starts the allowlist. Jean tool switches start on, because no limit means
+every tool. Status badges are **Enabled**, **Off**, **Default**, **Needs
+sign-in** (from `check_mcp_health`), and **Unsupported on this backend**.
+Needs sign-in wins over Enabled so the sign-in button stays visible. Sign-in
+is shown for Claude and Codex, which are the backends `prepare_mcp_login`
+supports. Codex can sign in and still cannot apply the allowlist; the badge
+says unsupported.

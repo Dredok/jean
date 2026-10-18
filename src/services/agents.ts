@@ -63,6 +63,21 @@ export interface AgentSummary {
   thinkingLevel: string | null
   /** Skill files injected into this agent's prompt and wake-ups. */
   skills: AgentSkill[]
+  /**
+   * MCP servers this agent may use. Null means no saved limit (today's
+   * behavior). An empty list allows no user MCP servers.
+   */
+  mcpServers?: AgentConnector[] | null
+  /**
+   * Jean MCP tool names this agent may call. Null allows every tool.
+   */
+  jeanTools?: string[] | null
+}
+
+/** One discovered MCP server selected for an agent. */
+export interface AgentConnector {
+  backend: string
+  name: string
 }
 
 export interface AgentTask {
@@ -105,6 +120,16 @@ export interface AgentDelegation {
   updatedAt: number
 }
 
+export type ScheduleKind = 'once' | 'interval' | 'cron' | 'event'
+
+/** Events a routine can listen for. Matches `EVENT_TRIGGERS` in agents/db.rs. */
+export type ScheduleEvent =
+  | 'session_finished'
+  | 'session_failed'
+  | 'worktree_archived'
+  | 'pr_merged'
+  | 'approval_resolved'
+
 export interface AgentSchedule {
   id: number
   agentId: string
@@ -113,6 +138,22 @@ export interface AgentSchedule {
   everySecs: number | null
   nextRunAt: number
   lastRunAt: number | null
+  cron: string | null
+  timezone: string | null
+  event: ScheduleEvent | string | null
+  paused: boolean
+}
+
+export interface ScheduleInput {
+  name: string
+  prompt: string
+  kind: ScheduleKind
+  everySecs?: number | null
+  delaySecs?: number | null
+  cron?: string | null
+  timezone?: string | null
+  event?: string | null
+  paused?: boolean
 }
 
 export interface AgentApproval {
@@ -164,6 +205,10 @@ export interface AgentPatch {
   thinkingLevel?: string | null
   /** Replaces the selected skills. An empty list clears them. */
   skills?: AgentSkill[]
+  /** Null clears a saved connector limit. An empty list allows none. */
+  mcpServers?: AgentConnector[] | null
+  /** Null allows every Jean tool. An empty list allows none. */
+  jeanTools?: string[] | null
 }
 
 export const agentsQueryKeys = {
@@ -386,6 +431,24 @@ export function useDecideAgentApproval() {
 export function useCancelAgentSchedule() {
   return useAgentsMutation((args: { agentId: string; scheduleId: number }) =>
     invoke<null>('cancel_agent_schedule', args)
+  )
+}
+
+export function useCreateAgentSchedule() {
+  return useAgentsMutation((args: { agentId: string } & ScheduleInput) => {
+    const payload: Record<string, unknown> = { ...args }
+    return invoke<AgentSchedule>('create_agent_schedule', payload)
+  })
+}
+
+export function useUpdateAgentSchedule() {
+  return useAgentsMutation(
+    (
+      args: { agentId: string; scheduleId: number } & Partial<ScheduleInput>
+    ) => {
+      const payload: Record<string, unknown> = { ...args }
+      return invoke<AgentSchedule>('update_agent_schedule', payload)
+    }
   )
 }
 

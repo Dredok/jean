@@ -55,6 +55,7 @@ const RATE_LIMITED_TOOLS: &[&str] = &[
     "unlink_worktree_pr",
     // Agent tools that write
     "schedule_create",
+    "schedule_update",
     "memory_save",
     "message_agent",
 ];
@@ -374,6 +375,16 @@ pub async fn call_tool(
             return Err(ToolError::internal(format!(
                 "Jean MCP rate limit exceeded ({} calls/min for source {source}, tool {name})",
                 prefs.jean_mcp_rate_limit_per_minute
+            )));
+        }
+    }
+
+    // A saved Jean-tool allowlist refuses the call before the approval gate,
+    // so a blocked destructive tool does not create an approval request.
+    if let Some(agent) = crate::agents::agent_for_session(app, source) {
+        if !crate::agents::connectors::jean_tool_allowed(agent.jean_tools.as_deref(), name) {
+            return Err(ToolError::internal(format!(
+                "This agent is not allowed to use the Jean tool {name}"
             )));
         }
     }
