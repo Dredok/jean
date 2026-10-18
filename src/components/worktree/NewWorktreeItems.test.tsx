@@ -89,37 +89,6 @@ describe('compact issue and PR rows', () => {
     expect(onClick).toHaveBeenCalledWith(true)
   })
 
-  it('shows the current-worktree investigation action on desktop', async () => {
-    const user = userEvent.setup()
-    const onInvestigateInNewSession = vi.fn()
-    render(
-      <IssueItem
-        issue={{
-          number: 42,
-          title: 'A detailed issue title',
-          state: 'OPEN',
-          labels: [],
-          created_at: '2026-01-01T00:00:00Z',
-          author: { login: 'octocat' },
-        }}
-        index={0}
-        isSelected={false}
-        isCreating={false}
-        onMouseEnter={vi.fn()}
-        onClick={vi.fn()}
-        onInvestigate={vi.fn()}
-        onInvestigateInNewSession={onInvestigateInNewSession}
-        onPreview={vi.fn()}
-      />
-    )
-    await user.click(
-      screen.getByRole('button', {
-        name: /investigate issue in the current worktree/i,
-      })
-    )
-    expect(onInvestigateInNewSession).toHaveBeenCalledTimes(1)
-  })
-
   it('shows issue labels, author and number, and filters by label on click', async () => {
     const user = userEvent.setup()
     const onLabelClick = vi.fn()
@@ -182,44 +151,6 @@ describe('compact issue and PR rows', () => {
 })
 
 describe('NewWorktreeItems mobile actions', () => {
-  it('offers investigating an issue in the current worktree', async () => {
-    isMobile = true
-    const user = userEvent.setup()
-    const onInvestigateInNewSession = vi.fn()
-    const issue: GitHubIssue = {
-      number: 42,
-      title: 'Investigate without a new worktree',
-      body: '',
-      state: 'OPEN',
-      labels: [],
-      created_at: '2026-01-01T00:00:00Z',
-      author: { login: 'octocat' },
-    }
-
-    render(
-      <IssueItem
-        issue={issue}
-        index={0}
-        isSelected={false}
-        isCreating={false}
-        onMouseEnter={vi.fn()}
-        onClick={vi.fn()}
-        onInvestigate={vi.fn()}
-        onInvestigateInNewSession={onInvestigateInNewSession}
-        onPreview={vi.fn()}
-      />
-    )
-
-    await user.click(screen.getByRole('button', { name: /issue actions/i }))
-    await user.click(
-      screen.getByRole('menuitem', {
-        name: /investigate in the current worktree/i,
-      })
-    )
-
-    expect(onInvestigateInNewSession).toHaveBeenCalledTimes(1)
-  })
-
   it('puts preview, investigate, and background investigation behind a mobile overflow menu', async () => {
     isMobile = true
     const user = userEvent.setup()

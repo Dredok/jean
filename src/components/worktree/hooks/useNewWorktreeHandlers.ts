@@ -50,7 +50,6 @@ export function useNewWorktreeHandlers(
     selectedProject,
     hasBaseSession,
     baseSession,
-    worktrees,
     createWorktree,
     createBaseSession,
     createWorktreeFromBranch,
@@ -428,116 +427,6 @@ export function useNewWorktreeHandlers(
       handleOpenChange,
       openExistingMatch,
       investigationOverride,
-    ]
-  )
-
-  const handleInvestigateIssueInNewSession = useCallback(
-    async (issue: GitHubIssue) => {
-      const projectPath = selectedProject?.path
-      if (!selectedProjectId || !projectPath) {
-        toast.error('No project selected')
-        return
-      }
-
-      if (
-        openExistingMatch(
-          { type: 'issue', id: issue.number },
-          `Issue #${issue.number}`
-        )
-      )
-        return
-
-      setCreatingFromNumber(issue.number)
-
-      try {
-        const chatStore = useChatStore.getState()
-        const selectedWorktreeId =
-          useProjectsStore.getState().selectedWorktreeId
-        const currentWorktreeId =
-          chatStore.activeWorktreeId ?? selectedWorktreeId
-        let targetWorktree = worktrees.find(
-          worktree =>
-            worktree.id === currentWorktreeId &&
-            worktree.project_id === selectedProjectId
-        )
-
-        if (!targetWorktree) {
-          targetWorktree =
-            baseSession ??
-            (await createBaseSession.mutateAsync(selectedProjectId))
-        }
-
-        const issueDetail = await invoke<
-          GitHubIssue & {
-            comments: {
-              body: string
-              author: { login: string }
-              created_at: string
-            }[]
-          }
-        >('get_github_issue', {
-          issueNumber: issue.number,
-          projectPath,
-        })
-
-        const issueContext: IssueContext = {
-          number: issueDetail.number,
-          title: issueDetail.title,
-          body: issueDetail.body,
-          comments: (issueDetail.comments ?? []).flatMap(comment =>
-            comment && comment.created_at && comment.author
-              ? [
-                  {
-                    body: comment.body ?? '',
-                    author: { login: comment.author.login ?? '' },
-                    createdAt: comment.created_at,
-                  },
-                ]
-              : []
-          ),
-        }
-
-        const issuePrompt = (
-          investigationOverride?.promptTemplate ??
-          'Investigate the loaded GitHub {issueWord} ({issueRefs})'
-        )
-          .replace(/\{issueWord\}/g, 'issue')
-          .replace(/\{issueRefs\}/g, `#${issue.number}`)
-        const comments = (issueDetail.comments ?? [])
-          .map(
-            comment =>
-              `Comment by @${comment.author.login}:\n${comment.body || '(empty)'}`
-          )
-          .join('\n\n')
-        const prompt = `${issuePrompt}\n\n## GitHub issue #${issue.number}: ${issueDetail.title}\n\n${issueDetail.body || '(No description provided)'}${comments ? `\n\n## Comments\n\n${comments}` : ''}`
-
-        chatStore.registerWorktreePath(targetWorktree.id, targetWorktree.path)
-        useProjectsStore.getState().selectWorktree(targetWorktree.id)
-        useUIStore
-          .getState()
-          .markWorktreeForAutoInvestigate(targetWorktree.id, {
-            ...investigationOverride,
-            forceNewSession: true,
-            prompt,
-            issueContext,
-            openSession: true,
-          })
-
-        handleOpenChange(false)
-      } catch (error) {
-        toast.error(`Failed to start issue investigation: ${error}`)
-        setCreatingFromNumber(null)
-      }
-    },
-    [
-      selectedProjectId,
-      selectedProject,
-      worktrees,
-      baseSession,
-      createBaseSession,
-      investigationOverride,
-      handleOpenChange,
-      openExistingMatch,
     ]
   )
 
@@ -1607,7 +1496,6 @@ export function useNewWorktreeHandlers(
     handleSelectBranch,
     handleSelectIssue,
     handleSelectIssueAndInvestigate,
-    handleInvestigateIssueInNewSession,
     handleBulkInvestigateIssues,
     handleSelectPR,
     handleSelectPRAndInvestigate,

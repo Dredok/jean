@@ -10,7 +10,6 @@ import {
   Wand2,
   Eye,
   MoreHorizontal,
-  MessageSquarePlus,
 } from '@/components/icons/reicon'
 import {
   Tooltip,
@@ -158,7 +157,6 @@ export interface IssueItemProps {
   onMouseEnter: () => void
   onClick: (background: boolean) => void
   onInvestigate: (background: boolean) => void
-  onInvestigateInNewSession?: () => void
   onPreview: () => void
   onLabelClick?: (label: string) => void
 }
@@ -174,7 +172,6 @@ export function IssueItem({
   onMouseEnter,
   onClick,
   onInvestigate,
-  onInvestigateInNewSession,
   onPreview,
   onLabelClick,
 }: IssueItemProps) {
@@ -238,7 +235,6 @@ export function IssueItem({
           isCreating={isCreating}
           onPreview={onPreview}
           onInvestigate={onInvestigate}
-          onInvestigateInNewSession={onInvestigateInNewSession}
         />
       </div>
     </div>
@@ -436,7 +432,6 @@ function ItemActions({
   isCreating,
   onPreview,
   onInvestigate,
-  onInvestigateInNewSession,
 }: {
   label: string
   previewLabel: string
@@ -444,7 +439,6 @@ function ItemActions({
   isCreating: boolean
   onPreview: () => void
   onInvestigate: (background: boolean) => void
-  onInvestigateInNewSession?: () => void
 }) {
   const isMobile = useIsMobile()
 
@@ -470,12 +464,6 @@ function ItemActions({
             <Wand2 className="h-4 w-4 text-current" />
             Investigate
           </DropdownMenuItem>
-          {onInvestigateInNewSession && (
-            <DropdownMenuItem onClick={onInvestigateInNewSession}>
-              <Wand2 className="h-4 w-4 text-current" />
-              Investigate in the Current Worktree
-            </DropdownMenuItem>
-          )}
           <DropdownMenuItem onClick={() => onInvestigate(true)}>
             <Wand2 className="h-4 w-4 text-current" />
             Investigate in Background
@@ -505,25 +493,6 @@ function ItemActions({
           {previewLabel} ({getModifierSymbol()}O)
         </TooltipContent>
       </Tooltip>
-      {onInvestigateInNewSession && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={`${investigateLabel} in the current worktree`}
-              onClick={e => {
-                e.stopPropagation()
-                onInvestigateInNewSession()
-              }}
-              disabled={isCreating}
-              className="inline-flex h-6 w-6 items-center justify-center rounded px-1 text-foreground/80 transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <MessageSquarePlus className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Investigate in the current worktree</TooltipContent>
-        </Tooltip>
-      )}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
