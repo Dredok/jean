@@ -194,9 +194,7 @@ describe('ContextMentionPopover', () => {
     expect(onSelectContext).not.toHaveBeenCalled()
 
     // Attaching context to the current session is still allowed
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Add #123 to session context' })
-    )
+    fireEvent.click(screen.getByText('Fix login bug'))
     expect(onSelectContext).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'issue:123' }),
       false
@@ -256,7 +254,7 @@ describe('ContextMentionPopover', () => {
     expect(onSelectContext).toHaveBeenLastCalledWith(items[0], false)
   })
 
-  it('offers separate add and investigate actions for issues and PRs', () => {
+  it('adds an item on row click and investigates from the action button', () => {
     const onSelectContext = vi.fn()
     render(
       <ContextMentionPopover
@@ -270,9 +268,7 @@ describe('ContextMentionPopover', () => {
       />
     )
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Add #123 to session context' })
-    )
+    fireEvent.click(screen.getByText('Fix login bug'))
     expect(onSelectContext).toHaveBeenCalledWith(items[0], false)
 
     fireEvent.click(
@@ -349,7 +345,9 @@ describe('ContextMentionPopover', () => {
         name: `Add ${items[0].label} and start investigating`,
       })
     ).not.toHaveTextContent('Investigate')
-    expect(screen.queryByText('Attach')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /to session context/ })
+    ).not.toBeInTheDocument()
 
     platform.native = false
     platform.mobile = false

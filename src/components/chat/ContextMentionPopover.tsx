@@ -12,9 +12,8 @@ import {
   ExternalLink,
   Eye,
   Loader2,
-  Plus,
   RefreshCw,
-  Sparkles,
+  Wand2,
 } from '@/components/icons/reicon'
 import { Kbd } from '@/components/ui/kbd'
 import {
@@ -152,8 +151,8 @@ export function ContextMentionPopover({
   const isMobile = useIsMobile()
   const showKeyboardHints = isNativeApp() && !isMobile
   const actionButtonClass = cn(
-    'flex min-h-8 items-center gap-1 rounded hover:bg-muted',
-    isMobile ? 'min-w-8 justify-center' : 'px-1.5'
+    'inline-flex shrink-0 items-center justify-center self-center rounded text-foreground/80 transition-colors hover:bg-muted hover:text-foreground',
+    isMobile ? 'size-8' : 'size-6'
   )
   const [includeClosed, setIncludeClosed] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
@@ -508,78 +507,13 @@ export function ContextMentionPopover({
                             {item.badge}
                           </span>
                         )}
-                        {(item.type === 'issue' || item.type === 'pr') && (
-                          <span className="flex shrink-0 items-center gap-1 self-center">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label={`Add ${item.label} to session context`}
-                                  className={actionButtonClass}
-                                  onClick={event => {
-                                    event.stopPropagation()
-                                    handleSelect(item)
-                                  }}
-                                >
-                                  <Plus className="size-3.5" />
-                                  {!isMobile && <span>Attach</span>}
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent className="flex items-center gap-2">
-                                Add {item.label} to session context
-                                {showKeyboardHints && isSelected && (
-                                  <Kbd>Enter</Kbd>
-                                )}
-                              </TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label={
-                                    existing
-                                      ? `Open existing investigation of ${item.label}`
-                                      : `Add ${item.label} and start investigating`
-                                  }
-                                  className={actionButtonClass}
-                                  onClick={event => {
-                                    event.stopPropagation()
-                                    handleSelect(item, true)
-                                  }}
-                                >
-                                  {existing ? (
-                                    <ExternalLink className="size-3.5" />
-                                  ) : (
-                                    <Sparkles className="size-3.5" />
-                                  )}
-                                  {!isMobile && (
-                                    <span>
-                                      {existing ? 'Open' : 'Investigate'}
-                                    </span>
-                                  )}
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent className="flex items-center gap-2">
-                                {existing
-                                  ? `Open ${contextLinkMatchLabel(existing, currentWorktreeId)}`
-                                  : `Add ${item.label} and start investigating`}
-                                {showKeyboardHints && isSelected && (
-                                  <Kbd>Shift+Enter</Kbd>
-                                )}
-                              </TooltipContent>
-                            </Tooltip>
-                          </span>
-                        )}
                         {preview && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
                                 aria-label={`Preview ${item.label}`}
-                                className={cn(
-                                  actionButtonClass,
-                                  'shrink-0 self-center min-w-8 justify-center'
-                                )}
+                                className={actionButtonClass}
                                 onClick={event => {
                                   event.stopPropagation()
                                   setPreviewTarget(preview)
@@ -590,6 +524,39 @@ export function ContextMentionPopover({
                             </TooltipTrigger>
                             <TooltipContent>
                               Preview {item.label}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        {(item.type === 'issue' || item.type === 'pr') && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label={
+                                  existing
+                                    ? `Open existing investigation of ${item.label}`
+                                    : `Add ${item.label} and start investigating`
+                                }
+                                className={actionButtonClass}
+                                onClick={event => {
+                                  event.stopPropagation()
+                                  handleSelect(item, true)
+                                }}
+                              >
+                                {existing ? (
+                                  <ExternalLink className="size-3.5" />
+                                ) : (
+                                  <Wand2 className="size-3" />
+                                )}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="flex items-center gap-2">
+                              {existing
+                                ? `Open ${contextLinkMatchLabel(existing, currentWorktreeId)}`
+                                : `Add ${item.label} and start investigating`}
+                              {showKeyboardHints && isSelected && (
+                                <Kbd>Shift+Enter</Kbd>
+                              )}
                             </TooltipContent>
                           </Tooltip>
                         )}
