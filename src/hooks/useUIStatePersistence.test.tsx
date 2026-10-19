@@ -112,6 +112,7 @@ describe('useUIStatePersistence — terminal restore on web refresh', () => {
       pendingFiles: {},
       pendingSkills: {},
       dismissedSetupScripts: {},
+      collapsedQueuedPromptsSessions: {},
     })
     useProjectsStore.setState({
       projectCanvasSettings: {},
@@ -347,6 +348,29 @@ describe('useUIStatePersistence — terminal restore on web refresh', () => {
     await waitFor(() => {
       expect(useChatStore.getState().dismissedSetupScripts).toEqual({
         'worktree-1': true,
+      })
+    })
+  })
+
+  it('restores collapsed queued prompts panels after a reload', async () => {
+    mockUseUIState.mockReturnValue({
+      data: buildUiState({ collapsed_queued_prompts_sessions: ['session-1'] }),
+      isSuccess: true,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+
+    renderHook(() => useUIStatePersistence(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await waitFor(() => {
+      expect(useChatStore.getState().collapsedQueuedPromptsSessions).toEqual({
+        'session-1': true,
       })
     })
   })

@@ -171,6 +171,7 @@ export function useUIStatePersistence() {
       pendingFiles,
       pendingSkills,
       dismissedSetupScripts,
+      collapsedQueuedPromptsSessions,
       reviewSidebarVisible,
       lastOpenedPerProject,
       autoResume,
@@ -252,6 +253,9 @@ export function useUIStatePersistence() {
       ),
       pending_skills: pendingSkills,
       dismissed_setup_scripts: Object.keys(dismissedSetupScripts),
+      collapsed_queued_prompts_sessions: Object.keys(
+        collapsedQueuedPromptsSessions
+      ),
       // Review sidebar visibility
       review_sidebar_visible: reviewSidebarVisible,
       // Modal terminal drawer state
@@ -511,6 +515,15 @@ export function useUIStatePersistence() {
     })
     if (Object.keys(dismissedSetupScripts).length > 0) {
       useChatStore.setState({ dismissedSetupScripts })
+    }
+    const collapsedQueuedPromptsSessions = Object.fromEntries(
+      (uiState.collapsed_queued_prompts_sessions ?? []).map(sessionId => [
+        sessionId,
+        true,
+      ])
+    )
+    if (Object.keys(collapsedQueuedPromptsSessions).length > 0) {
+      useChatStore.setState({ collapsedQueuedPromptsSessions })
     }
 
     // Restore unsent image attachments (files already on disk)
@@ -1176,6 +1189,8 @@ export function useUIStatePersistence() {
     let prevPendingSkills = useChatStore.getState().pendingSkills
     let prevDismissedSetupScripts =
       useChatStore.getState().dismissedSetupScripts
+    let prevCollapsedQueuedPromptsSessions =
+      useChatStore.getState().collapsedQueuedPromptsSessions
     let prevReviewSidebarVisible = useChatStore.getState().reviewSidebarVisible
     let prevLastOpenedPerProject = useChatStore.getState().lastOpenedPerProject
     let prevAutoResume = useChatStore.getState().autoResume
@@ -1239,6 +1254,9 @@ export function useUIStatePersistence() {
       const pendingSkillsChanged = state.pendingSkills !== prevPendingSkills
       const dismissedSetupScriptsChanged =
         state.dismissedSetupScripts !== prevDismissedSetupScripts
+      const collapsedQueuedPromptsChanged =
+        state.collapsedQueuedPromptsSessions !==
+        prevCollapsedQueuedPromptsSessions
       const reviewSidebarChanged =
         state.reviewSidebarVisible !== prevReviewSidebarVisible
       const lastOpenedChanged =
@@ -1254,6 +1272,7 @@ export function useUIStatePersistence() {
         pendingFilesChanged ||
         pendingSkillsChanged ||
         dismissedSetupScriptsChanged ||
+        collapsedQueuedPromptsChanged ||
         reviewSidebarChanged ||
         lastOpenedChanged ||
         autoResumeChanged
@@ -1268,6 +1287,8 @@ export function useUIStatePersistence() {
         prevPendingFiles = state.pendingFiles
         prevPendingSkills = state.pendingSkills
         prevDismissedSetupScripts = state.dismissedSetupScripts
+        prevCollapsedQueuedPromptsSessions =
+          state.collapsedQueuedPromptsSessions
         prevReviewSidebarVisible = state.reviewSidebarVisible
         prevLastOpenedPerProject = state.lastOpenedPerProject
         prevAutoResume = state.autoResume

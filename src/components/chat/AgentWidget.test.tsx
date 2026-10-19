@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SubAgent } from '@/types/chat'
 import { AgentWidget } from './AgentWidget'
 
-vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }))
+let isMobile = false
+vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => isMobile }))
 
 function agent(overrides: Partial<SubAgent>): SubAgent {
   return {
@@ -23,6 +24,25 @@ describe('AgentWidget', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    isMobile = false
+  })
+
+  it('shows only the token number and time on mobile', () => {
+    isMobile = true
+    render(
+      <AgentWidget
+        agents={[
+          agent({
+            id: 'mobile-agent',
+            status: 'completed',
+            tokens: 82_500,
+            durationMs: 68_000,
+          }),
+        ]}
+        open
+      />
+    )
+    expect(screen.getByText('82.5k • 1m 8s')).toBeInTheDocument()
   })
 
   it('ticks the elapsed time of a running agent', () => {

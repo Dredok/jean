@@ -2976,6 +2976,10 @@ pub struct UIState {
     #[serde(default)]
     pub dismissed_setup_scripts: Vec<String>,
 
+    /// Session IDs whose Queued prompts panel is collapsed
+    #[serde(default)]
+    pub collapsed_queued_prompts_sessions: Vec<String>,
+
     /// Whether the review sidebar is visible
     #[serde(default)]
     pub review_sidebar_visible: Option<bool>,
@@ -3214,6 +3218,7 @@ impl Default for UIState {
             pending_files: std::collections::HashMap::new(),
             pending_skills: std::collections::HashMap::new(),
             dismissed_setup_scripts: Vec::new(),
+            collapsed_queued_prompts_sessions: Vec::new(),
             review_sidebar_visible: None,
             modal_terminal_open: std::collections::HashMap::new(),
             modal_terminal_dock_mode: None,
