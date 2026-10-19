@@ -86,11 +86,11 @@ const githubRowClass = (
   busy: boolean
 ) =>
   cn(
-    'group w-full flex items-start gap-2.5 px-4 py-2 text-left transition-colors border-b border-border/60 last:border-b-0',
+    'group w-full flex items-start gap-2.5 px-4 py-2 text-left transition-colors cursor-pointer border-b border-border/60 last:border-b-0',
     'hover:bg-accent/60',
     isSelected && 'bg-accent',
     isChecked && !isSelected && 'bg-accent/50',
-    busy && 'opacity-50'
+    busy && 'opacity-50 cursor-not-allowed'
   )
 
 function LabelPills({
@@ -179,6 +179,7 @@ export function IssueItem({
     <div
       data-item-index={index}
       onMouseEnter={onMouseEnter}
+      onClick={e => !isCreating && onClick(e.metaKey || e.ctrlKey)}
       className={githubRowClass(isSelected, isChecked, isCreating)}
     >
       {onCheckedChange && (
@@ -205,7 +206,6 @@ export function IssueItem({
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <button
             type="button"
-            onClick={e => onClick(e.metaKey || e.ctrlKey)}
             disabled={isCreating}
             className="min-w-0 text-left text-sm font-semibold leading-5 hover:text-primary focus:outline-none disabled:cursor-not-allowed"
           >
@@ -227,7 +227,10 @@ export function IssueItem({
         </div>
       </div>
       <ContextLinkBadge matches={contextMatches} />
-      <div className="shrink-0 flex items-center gap-1 self-center">
+      <div
+        className="shrink-0 flex items-center gap-1 self-center"
+        onClick={e => e.stopPropagation()}
+      >
         <ItemActions
           label="Issue"
           previewLabel="Preview issue"
@@ -279,6 +282,7 @@ export function PRItem({
     <div
       data-item-index={index}
       onMouseEnter={onMouseEnter}
+      onClick={e => !busy && onClick(e.metaKey || e.ctrlKey)}
       className={githubRowClass(isSelected, isChecked, busy)}
     >
       {onCheckedChange && (
@@ -309,7 +313,6 @@ export function PRItem({
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <button
             type="button"
-            onClick={e => onClick(e.metaKey || e.ctrlKey)}
             disabled={busy}
             className="min-w-0 text-left text-sm font-semibold leading-5 hover:text-primary focus:outline-none disabled:cursor-not-allowed"
           >
@@ -331,7 +334,10 @@ export function PRItem({
         </div>
       </div>
       <ContextLinkBadge matches={contextMatches} />
-      <div className="shrink-0 flex items-center gap-1 self-center">
+      <div
+        className="shrink-0 flex items-center gap-1 self-center"
+        onClick={e => e.stopPropagation()}
+      >
         <ItemActions
           label="PR"
           previewLabel="Preview PR"
