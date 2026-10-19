@@ -325,6 +325,7 @@ export const ChatInput = memo(function ChatInput({
 
         // Remove files that are no longer mentioned
         for (const file of files) {
+          if (file.attached) continue
           const filename = getFilename(file.relativePath)
           if (!mentionedNames.has(filename)) {
             removePendingFile(activeSessionId, file.id)

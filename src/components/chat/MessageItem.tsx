@@ -547,6 +547,9 @@ export const MessageItem = memo(function MessageItem({
               key={`${message.id}-file-${idx}`}
               path={path}
               worktreePath={worktreePath}
+              serverId={
+                messageServerId === 'local' ? undefined : messageServerId
+              }
             />
           ))}
         </div>

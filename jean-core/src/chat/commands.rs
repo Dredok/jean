@@ -6911,8 +6911,11 @@ pub fn save_pasted_file_bytes(
         })
         .take(160)
         .collect();
-    let stored_name = format!("{}-{safe_name}", &Uuid::new_v4().to_string()[..8]);
-    let file_path = get_pastes_dir(app)?.join(&stored_name);
+    // A unique folder per upload keeps the original filename visible in badges.
+    let upload_dir = get_pastes_dir(app)?.join(&Uuid::new_v4().to_string()[..8]);
+    std::fs::create_dir_all(&upload_dir)
+        .map_err(|e| format!("Failed to create upload directory: {e}"))?;
+    let file_path = upload_dir.join(&safe_name);
     crate::platform::write_file_atomically(&file_path, bytes)?;
 
     Ok(SaveTextResponse {

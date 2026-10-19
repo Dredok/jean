@@ -3180,6 +3180,8 @@ pub struct PendingFileDraft {
     pub source_project_name: Option<String>,
     pub extension: String,
     pub is_directory: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub attached: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -197,6 +197,33 @@ describe('ChatInput attachments', () => {
     slashPopoverMock.mockClear()
   })
 
+  it('keeps uploaded attachments when typing but drops unmentioned @files', () => {
+    storeState.getPendingFiles.mockReturnValue([
+      {
+        id: 'upload',
+        relativePath: '/data/pasted-texts/abcd1234/report.docx',
+        extension: 'docx',
+        isDirectory: false,
+        attached: true,
+      },
+      {
+        id: 'mention',
+        relativePath: 'src/main.ts',
+        extension: 'ts',
+        isDirectory: false,
+      },
+    ] as never)
+    const textarea = renderInput('session-1')
+
+    fireEvent.change(textarea, { target: { value: 'summarize this' } })
+
+    expect(storeState.removePendingFile).toHaveBeenCalledTimes(1)
+    expect(storeState.removePendingFile).toHaveBeenCalledWith(
+      'session-1',
+      'mention'
+    )
+  })
+
   it('sends the issue investigation prompt after the context loads', async () => {
     invokeMock.mockResolvedValue(undefined)
     const onSubmit = vi.fn()

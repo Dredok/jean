@@ -1541,6 +1541,8 @@ export interface PendingFile {
   extension: string
   /** Whether this is a directory mention */
   isDirectory: boolean
+  /** Uploaded attachment, not an @mention, so input edits do not remove it */
+  attached?: boolean
 }
 
 // ============================================================================

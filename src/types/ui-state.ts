@@ -74,6 +74,7 @@ export interface PendingFileDraft {
   source_project_name?: string
   extension: string
   is_directory: boolean
+  attached?: boolean
 }
 
 export interface PendingSkillDraft {

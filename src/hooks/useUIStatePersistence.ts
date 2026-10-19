@@ -248,6 +248,7 @@ export function useUIStatePersistence() {
             source_project_name: file.sourceProjectName,
             extension: file.extension,
             is_directory: file.isDirectory,
+            attached: file.attached,
           })),
         ])
       ),
@@ -496,6 +497,7 @@ export function useUIStatePersistence() {
                 sourceProjectName: file.source_project_name,
                 extension: file.extension,
                 isDirectory: file.is_directory,
+                attached: file.attached,
               },
             ]
           : []
