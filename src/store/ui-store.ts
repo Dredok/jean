@@ -112,6 +112,8 @@ export interface McpLoginContext {
 export interface MinimizedCliUpdate {
   type: Exclude<CliLoginModalType, null>
   name: string
+  /** Jean instance the update runs on, e.g. "Local" or "Remote: devbox". */
+  target: string
   kind: 'reinstall' | 'terminal'
   progress: number | null
 }

@@ -32,6 +32,8 @@ import { useCommandCodeCliSetup } from '@/services/commandcode-cli'
 import { useGrokCliSetup } from '@/services/grok-cli'
 import { useKimiCliSetup } from '@/services/kimi-cli'
 import { logger } from '@/lib/logger'
+import { updateTargetLabel } from '@/lib/environment'
+import { useOptionalSettingsTargetServerId } from '@/lib/settings-target'
 import { useUIStore } from '@/store/ui-store'
 import {
   SetupState,
@@ -308,6 +310,7 @@ function CliReinstallModalUI({
                   : cliType === 'kimi'
                     ? 'Kimi Code CLI'
                     : 'GitHub CLI'
+  const target = updateTargetLabel(useOptionalSettingsTargetServerId())
 
   // Store setup in ref for stable callback reference
   const setupRef = useRef(setup)
@@ -402,7 +405,7 @@ function CliReinstallModalUI({
         setupRef.current.refetchStatus()
         if (minimizedRef.current) {
           toast.success(
-            `${cliName} ${setupRef.current.status?.installed ? 'updated' : 'installed'} successfully`
+            `${cliName} (${target}) ${setupRef.current.status?.installed ? 'updated' : 'installed'} successfully`
           )
           onOpenChange(false)
         } else {
@@ -417,7 +420,7 @@ function CliReinstallModalUI({
         isInstallingRef.current = false
         if (minimizedRef.current) {
           toast.error(
-            `Failed to ${setupRef.current.status?.installed ? 'update' : 'install'} ${cliName}`,
+            `Failed to ${setupRef.current.status?.installed ? 'update' : 'install'} ${cliName} (${target})`,
             {
               description: error.message,
             }
@@ -429,16 +432,17 @@ function CliReinstallModalUI({
         }
       },
     })
-  }, [selectedVersion, cliType, cliName, onOpenChange])
+  }, [selectedVersion, cliType, cliName, target, onOpenChange])
 
   const handleMinimize = useCallback(() => {
     useUIStore.getState().setMinimizedCliUpdate({
       type: cliType,
       name: cliName,
+      target,
       kind: 'reinstall',
       progress: setup.progress?.percent ?? 0,
     })
-  }, [cliType, cliName, setup.progress?.percent])
+  }, [cliType, cliName, target, setup.progress?.percent])
 
   const handleComplete = useCallback(() => {
     onOpenChange(false)

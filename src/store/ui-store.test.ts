@@ -28,6 +28,7 @@ describe('minimized CLI updates', () => {
     store.setMinimizedCliUpdate({
       type: 'codex',
       name: 'Codex CLI',
+      target: 'Local',
       kind: 'reinstall',
       progress: 25,
     })
@@ -44,6 +45,7 @@ describe('minimized CLI updates', () => {
     useUIStore.getState().setMinimizedCliUpdate({
       type: 'gh',
       name: 'GitHub CLI',
+      target: 'Local',
       kind: 'terminal',
       progress: null,
     })

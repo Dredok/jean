@@ -262,7 +262,9 @@ function App() {
 
       let totalBytes = 0
       let downloadedBytes = 0
-      const toastId = toast.loading(`Downloading update ${update.version}...`)
+      const toastId = toast.loading(
+        `Downloading update ${update.version} (Local)...`
+      )
 
       // Mark in-progress so auto-check cannot re-open the modal mid-download.
       // Keep pendingUpdateRef + version badge until success so retries work and
@@ -282,14 +284,14 @@ function App() {
               downloadedBytes += event.data.chunkLength
               if (totalBytes > 0) {
                 const percent = Math.round((downloadedBytes / totalBytes) * 100)
-                toast.loading(`Downloading update... ${percent}%`, {
+                toast.loading(`Downloading update (Local)... ${percent}%`, {
                   id: toastId,
                 })
               }
               break
             case 'Finished':
               logger.info('Download complete, installing...')
-              toast.loading('Installing update...', { id: toastId })
+              toast.loading('Installing update (Local)...', { id: toastId })
               break
           }
         })
@@ -314,7 +316,7 @@ function App() {
         store.setUpdateModalVersion(null)
         store.setPendingUpdateVersion(null)
 
-        toast.success(`Update ${update.version} installed!`, {
+        toast.success(`Update ${update.version} installed (Local)!`, {
           id: toastId,
           duration: Infinity,
           action: {

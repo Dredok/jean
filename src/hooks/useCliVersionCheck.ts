@@ -60,7 +60,7 @@ import {
 import { useUIStore } from '@/store/ui-store'
 import { isNewerVersion } from '@/lib/version-utils'
 import { logger } from '@/lib/logger'
-import { hasBackend } from '@/lib/environment'
+import { hasBackend, updateTargetLabel } from '@/lib/environment'
 import { usePreferences } from '@/services/preferences'
 import {
   CLI_DISPLAY_NAMES,
@@ -374,7 +374,8 @@ export function useCliVersionCheck() {
         nextUpdates.length !== availableCliUpdates.length ||
         updates.length > 0
       ) {
-        if (updates.length > 0) logger.info('CLI updates available', { updates })
+        if (updates.length > 0)
+          logger.info('CLI updates available', { updates })
         setAvailableCliUpdates(nextUpdates)
       }
 
@@ -514,7 +515,7 @@ async function runBackgroundUpdate(
   autoUpdate: boolean,
   notified?: Set<string>
 ) {
-  const cliName = CLI_DISPLAY_NAMES[update.type]
+  const cliName = `${CLI_DISPLAY_NAMES[update.type]} (${updateTargetLabel()})`
   const toastId = `cli-update-bg-${update.type}`
   const versionKey = `${update.type}:${update.currentVersion}→${update.latestVersion}`
 

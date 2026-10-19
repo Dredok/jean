@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { invoke, listen } from '@/lib/transport'
 import { useQueryClient } from '@tanstack/react-query'
 import { logger } from '@/lib/logger'
+import { updateTargetLabel } from '@/lib/environment'
 import { claudeCliQueryKeys } from '@/services/claude-cli'
 import { ghCliQueryKeys } from '@/services/gh-cli'
 import { codexCliQueryKeys } from '@/services/codex-cli'
@@ -159,6 +160,8 @@ function CliLoginModalContent({
       cliName
     )
 
+  const target = updateTargetLabel(mcpContext?.serverId)
+
   // Generate unique terminal ID for this login session
   const [terminalId] = useState(() => {
     const id = `cli-login-${generateId()}`
@@ -282,7 +285,7 @@ function CliLoginModalContent({
         logger.debug(logBase + logOutput)
         if (minimizedRef.current) {
           toast.success(
-            `${cliName} ${action === 'install' ? 'installed' : 'updated'} successfully`
+            `${cliName} (${target}) ${action === 'install' ? 'installed' : 'updated'} successfully`
           )
           onLoginSuccessClose()
         } else {
@@ -292,7 +295,7 @@ function CliLoginModalContent({
         logger.error(logBase + logOutput)
         if (minimizedRef.current) {
           toast.error(
-            `Failed to ${action === 'install' ? 'install' : 'update'} ${cliName}`,
+            `Failed to ${action === 'install' ? 'install' : 'update'} ${cliName} (${target})`,
             {
               description: signal
                 ? `Process stopped by signal ${signal}`
@@ -309,17 +312,18 @@ function CliLoginModalContent({
       clearTimeout(closeTimeout)
       setOnStopped(terminalId, undefined)
     }
-  }, [terminalId, cliName, command, commandArgs, action])
+  }, [terminalId, cliName, target, command, commandArgs, action])
 
   const handleMinimize = useCallback(() => {
     if (!cliType) return
     useUIStore.getState().setMinimizedCliUpdate({
       type: cliType,
       name: cliName,
+      target,
       kind: 'terminal',
       progress: null,
     })
-  }, [cliType, cliName])
+  }, [cliType, cliName, target])
 
   return (
     <Dialog open={!minimized} onOpenChange={handleOpenChange}>

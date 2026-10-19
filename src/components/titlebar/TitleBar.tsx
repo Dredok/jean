@@ -31,7 +31,7 @@ import { CLI_DISPLAY_NAMES, resolveCliPathUpdateAction } from '@/lib/cli-update'
 import type { PendingCliUpdate } from '@/store/ui-store'
 import { toast } from 'sonner'
 import { formatShortcutDisplay, DEFAULT_KEYBINDINGS } from '@/types/keybindings'
-import { isNativeApp } from '@/lib/environment'
+import { isNativeApp, updateTargetLabel } from '@/lib/environment'
 import { UnreadBell } from '@/components/unread/UnreadBell'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { applyServerUpdate } from '@/hooks/useServerUpdateCheck'
@@ -334,7 +334,7 @@ function CliUpdatesIndicator() {
           openCliLoginModal(update.type, action[0], action[1], 'update')
         } else {
           toast.error(
-            `Can't auto-update ${CLI_DISPLAY_NAMES[update.type]}. Update it manually via your package manager.`
+            `Can't auto-update ${CLI_DISPLAY_NAMES[update.type]} (${updateTargetLabel()}). Update it manually via your package manager.`
           )
           return
         }
@@ -368,7 +368,8 @@ function CliUpdatesIndicator() {
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="bottom">
-          {updates.length} CLI update{updates.length > 1 ? 's' : ''} available
+          {updates.length} CLI update{updates.length > 1 ? 's' : ''} available (
+          {updateTargetLabel()})
         </TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-72 p-0">
@@ -383,7 +384,8 @@ function CliUpdatesIndicator() {
                   {CLI_DISPLAY_NAMES[update.type]}
                 </p>
                 <p className="text-[0.625rem] text-muted-foreground">
-                  v{update.currentVersion} → v{update.latestVersion}
+                  {updateTargetLabel()} · v{update.currentVersion} → v
+                  {update.latestVersion}
                 </p>
               </div>
               <div className="flex items-center gap-1 ml-2 shrink-0">
@@ -417,13 +419,16 @@ function ServerUpdateIndicator() {
 
   const handleClick = () => {
     if (!pending.canUpdate) {
-      toast.info(`jean-server ${pending.latestVersion} is available`, {
-        id: 'server-update-available',
-        description:
-          pending.reason ||
-          'This host cannot self-update. Replace the binary or image manually.',
-        duration: 12_000,
-      })
+      toast.info(
+        `jean-server ${pending.latestVersion} is available (${updateTargetLabel()})`,
+        {
+          id: 'server-update-available',
+          description:
+            pending.reason ||
+            'This host cannot self-update. Replace the binary or image manually.',
+          duration: 12_000,
+        }
+      )
       return
     }
     void applyServerUpdate(pending.latestVersion)
@@ -443,8 +448,8 @@ function ServerUpdateIndicator() {
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {pending.canUpdate
-          ? `Update jean-server to v${pending.latestVersion} (currently v${pending.currentVersion})`
-          : `jean-server v${pending.latestVersion} available — ${pending.reason || 'manual update required'}`}
+          ? `Update jean-server on ${updateTargetLabel()} to v${pending.latestVersion} (currently v${pending.currentVersion})`
+          : `jean-server v${pending.latestVersion} available on ${updateTargetLabel()} — ${pending.reason || 'manual update required'}`}
       </TooltipContent>
     </Tooltip>
   )
@@ -489,7 +494,9 @@ function UpdateIndicator() {
           {label}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{tooltip}</TooltipContent>
+      <TooltipContent side="bottom">
+        {tooltip} ({updateTargetLabel()})
+      </TooltipContent>
     </Tooltip>
   )
 }
