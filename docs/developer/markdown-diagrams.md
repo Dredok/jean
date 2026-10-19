@@ -12,34 +12,27 @@ shared native/web helper, and an accessible enlarged dialog. Icon actions use
 44px targets on mobile.
 Invalid syntax falls back to readable source without breaking the message.
 
-Mermaid rendering is serialized because its configuration is global. Rendering
-uses a temporary off-screen container removed on success or failure. Each render
-uses a new ID because Mermaid removes existing elements with that ID. Stale
-results are ignored after source/theme changes or unmount. Successful SVGs are
-cached by theme and source (bounded), so remounts such as session switches do
-not run the layout again or change message height. Failures are not cached. The applied root
-`dark` class drives theme changes, including system theme changes.
+Diagrams render with [Pele](https://pele.run/) (`pele`, pinned), a
+dependency-free Mermaid-syntax renderer. Its own layout engine means diagrams
+do not match mermaid.js pixel for pixel. The module is imported once on the
+first diagram; after that, `render()` is synchronous and runs during render
+(`useMemo`), so remounts such as session switches keep their height without a
+cache. A failed module load is retried on the next mount. Each block passes a
+unique `idPrefix` (from `useId`) and the body font as `fontFamily`, because
+Pele measures text with that font and embeds it in the SVG.
 
-Treat diagram source as untrusted: retain strict Mermaid security, disallow
-message overrides of security limits and custom theme CSS/fonts, and sanitize
-the SVG with DOMPurify before insertion. Do not enable Mermaid click callbacks
-or bind its interactive functions. Scripts, links, embedded frames, and external
-images and SVG foreignObjects are disallowed. Labels use pure SVG text instead
-of HTML integration points, so sanitization retains their content and line breaks.
+Theming uses CSS variables only: `.pele` in `src/App.css` maps `--pele-*` to the
+app theme tokens, so light/dark switches need no re-render. Mermaid themes and
+`themeVariables` in diagram directives have no effect.
 
-Mermaid strips `secure` keys at every config depth, so locking `htmlLabels`
-also locks `flowchart.htmlLabels`. Do not lock whole diagram sections such as
-`flowchart`: that blocks harmless directives (for example `curve`).
+Treat diagram source as untrusted: render with `links: false` and
+`images: false`, and sanitize the SVG with DOMPurify before insertion. Scripts,
+links, embedded frames, external images, and SVG foreignObjects are disallowed.
+Pele ignores `click` JavaScript callbacks and only emits SVG text labels.
+Parser errors (`PeleError`) are shown as React text, never as HTML, because
+they contain diagram source.
 
 Tests: `markdown-mermaid.test.tsx` covers routing and streaming;
-`mermaid-block.test.tsx` covers controls, failures, sanitization, themes,
-caching, and stale render handling; `mermaid-config.test.ts` runs the real
-Mermaid directive pipeline against the locked config. These mock Mermaid and do not replace real-browser
-checks of diagram layout.
-
-Native macOS page zoom: WKWebView scales `em`-based SVG text positions
-inconsistently with node geometry. After sanitization, font-relative text
-coordinates are resolved to SVG user units in the attached off-screen container.
-This preserves text/node alignment across zoom changes without rerendering the
-diagram or enabling HTML labels. Verify layout with actual WKWebView `pageZoom`,
-not CSS zoom alone; mocked Mermaid tests only cover the normalization contract.
+`mermaid-block.test.tsx` runs the real Pele renderer (jsdom falls back to its
+built-in text width table) and covers controls, failures, sanitization, and
+synchronous remounts. They do not replace real-browser checks of layout.

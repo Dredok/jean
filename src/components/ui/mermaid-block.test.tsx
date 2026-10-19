@@ -1,34 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils'
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils'
 import type { MermaidBlock as MermaidBlockType } from './mermaid-block'
 
-const { renderDiagram, initialize, copy, success, error } = vi.hoisted(() => ({
-  renderDiagram: vi.fn(),
-  initialize: vi.fn(),
+const { copy, success, error } = vi.hoisted(() => ({
   copy: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }))
 vi.mock('@/lib/clipboard', () => ({ copyToClipboard: copy }))
 vi.mock('sonner', () => ({ toast: { success, error } }))
-vi.mock('mermaid', () => ({ default: { initialize, render: renderDiagram } }))
 
-// The render cache and queue are module state: load a fresh module per test.
+const source = 'flowchart TD\nA[Step A] --> B[Step B]'
+
+// The loaded renderer is module state: load a fresh module per test.
 let MermaidBlock: typeof MermaidBlockType
 beforeEach(async () => {
   vi.resetModules()
   ;({ MermaidBlock } = await import('./mermaid-block'))
   vi.clearAllMocks()
-  document.documentElement.classList.remove('dark')
   copy.mockResolvedValue(undefined)
-  renderDiagram
-    .mockReset()
-    .mockResolvedValue({ svg: '<svg><text>Step A</text></svg>' })
 })
 
 describe('MermaidBlock', () => {
   it('groups view choices and keeps icon actions accessible', async () => {
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
+    render(<MermaidBlock source={source} />)
     await screen.findByText('Step A')
     expect(
       screen.getByRole('radiogroup', { name: 'Diagram view' })
@@ -43,56 +38,45 @@ describe('MermaidBlock', () => {
     expect(
       screen.getByRole('button', { name: 'Enlarge diagram' }).textContent
     ).toBe('')
-    fireEvent.click(screen.getByRole('radio', { name: 'Diagram' }))
-    expect(screen.getByRole('radio', { name: 'Diagram' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    )
   })
-  it('uses SVG labels so sanitization cannot strip the diagram text', async () => {
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
-    await screen.findByText('Step A')
-    expect(initialize).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        htmlLabels: false,
-        flowchart: { htmlLabels: false },
-        secure: expect.arrayContaining(['htmlLabels']),
-      })
-    )
+
+  it('renders themeable SVG labels', async () => {
+    const { container } = render(<MermaidBlock source={source} />)
+    await screen.findByText('Step B')
+    const svg = container.querySelector('svg.pele')
+    expect(svg?.getAttribute('style')).toContain('var(--pele-fg')
   })
-  it('reuses a finished render when the block remounts', async () => {
-    const { unmount } = render(<MermaidBlock source="flowchart TD; A --> B" />)
+
+  it('renders synchronously when the block remounts', async () => {
+    const { unmount } = render(<MermaidBlock source={source} />)
     await screen.findByText('Step A')
     unmount()
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
+    render(<MermaidBlock source={source} />)
     expect(screen.getByText('Step A')).toBeTruthy()
     expect(screen.queryByRole('status')).toBeNull()
-    expect(renderDiagram).toHaveBeenCalledTimes(1)
   })
-  it('retries a failed render after a remount', async () => {
-    renderDiagram.mockRejectedValueOnce(new Error('chunk load failed'))
-    const { unmount } = render(<MermaidBlock source="flowchart TD; A --> B" />)
-    await screen.findByRole('alert')
-    unmount()
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
+
+  it('updates the diagram when the source changes', async () => {
+    const { rerender } = render(<MermaidBlock source={source} />)
     await screen.findByText('Step A')
-    expect(renderDiagram).toHaveBeenCalledTimes(2)
+    rerender(<MermaidBlock source={'flowchart TD\nC[New] --> D[Done]'} />)
+    expect(screen.getByText('New')).toBeTruthy()
+    expect(screen.queryByText('Step A')).toBeNull()
   })
-  it('freezes font-relative SVG text positions for native page zoom', async () => {
-    renderDiagram.mockResolvedValue({
-      svg: '<svg><text style="font-size:16px"><tspan y="-0.1em" dy="1.1em" style="font-size:16px">Zoom label</tspan><tspan y="24" dy="2">Numeric label</tspan></text></svg>',
-    })
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
-    const label = await screen.findByText('Zoom label')
-    expect(label).toHaveAttribute('y', '-1.6')
-    expect(label).toHaveAttribute('dy', '17.6')
-    expect(screen.getByText('Numeric label')).toHaveAttribute('y', '24')
-    expect(screen.getByText('Numeric label')).toHaveAttribute('dy', '2')
+
+  it('drops links and scripts from untrusted diagrams', async () => {
+    const { container } = render(
+      <MermaidBlock
+        source={`${source}\nclick A "javascript:alert(1)"\nclick B "https://example.com"`}
+      />
+    )
+    await screen.findByText('Step A')
+    expect(container.querySelector('a, script, foreignObject')).toBeNull()
   })
 
   it('reports clipboard errors without claiming success', async () => {
     copy.mockRejectedValue(new Error('denied'))
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
+    render(<MermaidBlock source={source} />)
     fireEvent.click(screen.getByRole('button', { name: 'Copy code' }))
     await waitFor(() =>
       expect(error).toHaveBeenCalledWith('Unable to copy code')
@@ -100,25 +84,9 @@ describe('MermaidBlock', () => {
     expect(success).not.toHaveBeenCalled()
   })
 
-  it('rerenders when the applied theme changes', async () => {
-    render(<MermaidBlock source="flowchart TD; A --> B" />)
-    await screen.findByText('Step A')
-    await act(async () => {
-      document.documentElement.classList.add('dark')
-    })
-    await waitFor(() =>
-      expect(initialize).toHaveBeenLastCalledWith(
-        expect.objectContaining({ theme: 'dark' })
-      )
-    )
-    await screen.findByText('Step A')
-  })
   it('renders a diagram, switches to source and opens an enlarged view', async () => {
-    render(<MermaidBlock source={'flowchart TD\nA --> B'} />)
+    render(<MermaidBlock source={source} />)
     await screen.findByText('Step A')
-    expect(initialize).toHaveBeenCalledWith(
-      expect.objectContaining({ securityLevel: 'strict', startOnLoad: false })
-    )
     fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
     expect(screen.getByText(/flowchart TD/)).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: 'Diagram' }))
@@ -126,38 +94,14 @@ describe('MermaidBlock', () => {
     expect(screen.getByRole('dialog')).toBeTruthy()
   })
 
-  it('keeps invalid source readable', async () => {
-    renderDiagram.mockRejectedValue(new Error('invalid'))
+  it('keeps invalid source readable and shows the parser error', async () => {
     render(<MermaidBlock source="invalid diagram" />)
-    await screen.findByRole('alert')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/Unable to render this diagram\./)
+    expect(alert.textContent?.length).toBeGreaterThan(
+      'Unable to render this diagram. The source is shown below.'.length
+    )
     expect(screen.getByText('invalid diagram')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Enlarge diagram' })).toBeNull()
-  })
-
-  it('sanitizes generated SVG', async () => {
-    renderDiagram.mockResolvedValue({
-      svg: '<svg><script>alert(1)</script><text onclick="alert(1)">Safe</text></svg>',
-    })
-    const { container } = render(
-      <MermaidBlock source="flowchart TD; A --> B" />
-    )
-    await screen.findByText('Safe')
-    expect(container.querySelector('script, [onclick]')).toBeNull()
-  })
-
-  it('ignores a stale render after the source changes', async () => {
-    let resolve: (value: { svg: string }) => void = () => undefined
-    renderDiagram.mockImplementationOnce(
-      () =>
-        new Promise(r => {
-          resolve = r
-        })
-    )
-    const { rerender } = render(<MermaidBlock source="old" />)
-    await waitFor(() => expect(renderDiagram).toHaveBeenCalled())
-    rerender(<MermaidBlock source="new" />)
-    resolve({ svg: '<svg><text>Old</text></svg>' })
-    await screen.findByText('Step A')
-    expect(screen.queryByText('Old')).toBeNull()
   })
 })
