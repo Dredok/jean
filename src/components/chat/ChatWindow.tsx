@@ -335,9 +335,9 @@ interface ChatWindowProps {
   /** Override worktree path (used in modal mode to avoid setting global state) */
   worktreePath?: string
   /**
-   * Quiet chat (agents): compact history, and while a turn runs only this
-   * label and the timer instead of tool activity. Questions and plans still
-   * render because they need the user.
+   * Quiet chat (agents): history shows only prose (no tool calls), and while
+   * a turn runs only this label and the timer instead of tool activity.
+   * Questions and plans still render because they need the user.
    */
   workingLabel?: string
 }
@@ -2800,6 +2800,7 @@ const ChatWindowContent = memo(function ChatWindowContent({
                                 {compactView ? (
                                   <CompactMessageList
                                     ref={virtualizedListRef}
+                                    hideToolActivity={Boolean(workingLabel)}
                                     messages={compactMessages}
                                     scrollContainerRef={scrollViewportRef}
                                     totalMessages={compactMessages.length}

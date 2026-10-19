@@ -267,6 +267,42 @@ describe('CompactMessageList', () => {
     expect(screen.queryByText('Polling VM.')).not.toBeInTheDocument()
   })
 
+  it('shows only assistant prose when tool activity is hidden', () => {
+    renderCompact(
+      [
+        message('user-1', 'user', 100, 'check status'),
+        message('assistant-1', 'assistant', 104, '', {
+          tool_calls: [
+            {
+              id: 'tool-1',
+              name: 'Bash',
+              input: { command: 'git status --short' },
+              output: 'clean',
+            },
+          ],
+          content_blocks: [
+            { type: 'text', text: 'Checking the repo.' },
+            { type: 'tool_use', tool_call_id: 'tool-1' },
+            { type: 'text', text: 'The tree is clean.' },
+          ],
+        }),
+        message('user-2', 'user', 200, 'again'),
+        message('assistant-2', 'assistant', 204, '', {
+          tool_calls: [
+            { id: 'tool-2', name: 'Bash', input: {}, output: 'clean' },
+          ],
+          content_blocks: [{ type: 'tool_use', tool_call_id: 'tool-2' }],
+        }),
+      ],
+      { hideToolActivity: true }
+    )
+
+    expect(screen.getByText('Checking the repo.')).toBeVisible()
+    expect(screen.getByText('The tree is clean.')).toBeVisible()
+    expect(screen.queryByText('Bash')).not.toBeInTheDocument()
+    expect(screen.queryByText(/\d+ steps?/)).not.toBeInTheDocument()
+  })
+
   it('keeps pre-tool assistant prose in its timeline position after reload', () => {
     renderCompact([
       message('user-1', 'user', 100, 'fix the terminal'),

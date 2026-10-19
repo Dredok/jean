@@ -10,7 +10,10 @@ import {
   useAppDataDir,
 } from '@/services/projects'
 import { useChatStore } from '@/store/chat-store'
-import { useAgentsEnabledServers } from '@/components/agents/agents-feature'
+import {
+  useAgentsEnabledServers,
+  useShowAgents,
+} from '@/components/agents/agents-feature'
 import { useAgentsList, type AgentSummary } from '@/services/agents'
 import { AgentIcon } from '@/components/icons/JeanAgentIcon'
 import { useProjectsStore } from '@/store/projects-store'
@@ -90,16 +93,17 @@ export function CommandPalette() {
   const agentServers = useAgentsEnabledServers()
   const { data: agents = [] } = useAgentsList(agentServers)
   const multiServerAgents = new Set(agents.map(a => a.serverId)).size > 1
+  // On the Agents page the current project is not on screen, so list it too
+  const hiddenProjectId = useShowAgents() ? null : selectedProjectId
 
   // Create dynamic project commands (sorted by last-accessed, most recent first)
-  // Current project is excluded so the previous project is first (quick CMD+K → Enter switching)
+  // Current project is excluded so the previous project is first (quick CMD+K → Enter switching).
+  // On the Agents page it is kept, so CMD+K → Enter returns to it.
   const projectCommands = useMemo((): ProjectCommand[] => {
     return projects
       .filter(
         p =>
-          !p.is_folder &&
-          p.id !== selectedProjectId &&
-          !isLegacyConnectionCopy(p)
+          !p.is_folder && p.id !== hiddenProjectId && !isLegacyConnectionCopy(p)
       )
       .sort((a, b) => {
         const aIsActive = (a.serverId ?? LOCAL_SERVER_ID) === activeServerId
@@ -159,7 +163,7 @@ export function CommandPalette() {
     projects,
     appDataDir,
     projectAccessTimestamps,
-    selectedProjectId,
+    hiddenProjectId,
     native,
     activeServerId,
   ])

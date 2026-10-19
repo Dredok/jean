@@ -41,6 +41,7 @@ const {
   setRailSection: vi.fn(),
   setSelectedAgentId: vi.fn(),
   agentState: {
+    pageOpen: false,
     servers: [] as string[],
     agents: [] as {
       id: string
@@ -80,6 +81,7 @@ vi.mock('@/store/ui-store', () => ({
 
 vi.mock('@/components/agents/agents-feature', () => ({
   useAgentsEnabledServers: () => agentState.servers,
+  useShowAgents: () => agentState.pageOpen,
 }))
 
 vi.mock('@/services/agents', () => ({
@@ -201,6 +203,7 @@ describe('CommandPalette projects', () => {
     isNativeApp.mockReturnValue(true)
     getActiveConnectionId.mockReturnValue('remote-1')
     projectStoreState.selectedProjectId = null
+    agentState.pageOpen = false
     agentState.servers = []
     agentState.agents = []
   })
@@ -292,6 +295,23 @@ describe('CommandPalette projects', () => {
 
     expect(openServerProject).toHaveBeenCalledWith('server-1', {})
     expect(selectProject).not.toHaveBeenCalled()
+  })
+
+  it('hides the current project in the project view', () => {
+    projectStoreState.selectedProjectId = 'project-2'
+
+    render(<CommandPalette />)
+
+    expect(screen.queryByText('Local Tool')).not.toBeInTheDocument()
+  })
+
+  it('lists the current project on the Agents page to switch back to it', () => {
+    projectStoreState.selectedProjectId = 'project-2'
+    agentState.pageOpen = true
+
+    render(<CommandPalette />)
+
+    expect(screen.getByText('Local Tool')).toBeInTheDocument()
   })
 
   it('leaves the Agents page when a project is selected', () => {

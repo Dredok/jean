@@ -118,6 +118,8 @@ interface CompactMessageListProps {
   loadedRunStartIndex?: number
   hiddenPromptCount?: number
   onShowHiddenPrompts?: () => void
+  /** Show only assistant prose: no tool activity rows or edited files */
+  hideToolActivity?: boolean
 }
 
 type RenderItem =
@@ -214,6 +216,22 @@ function splitMessageAtSteeredInputs(
   flushBlocks()
 
   return segments
+}
+
+/** All assistant prose of a compact group, tool calls left out. */
+function collectAssistantText(group: { message: ChatMessage }[]): string {
+  return group
+    .flatMap(({ message }) => {
+      if (message.role !== 'assistant') return []
+      const blocks = message.content_blocks ?? []
+      if (blocks.length === 0) return [message.content ?? '']
+      return coalesceContentBlocks(blocks).flatMap(block =>
+        block.type === 'text' ? [block.text] : []
+      )
+    })
+    .map(text => text.trim())
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 function isPureTextAssistantMessage(message: ChatMessage): boolean {
@@ -539,6 +557,7 @@ interface CompactQuestionMessageProps {
   ) => React.ReactNode
   hasFollowUpFor: (globalIndex: number) => boolean
   durationFor: (globalIndex: number, message: ChatMessage) => number | null
+  hideToolActivity: boolean
 }
 
 /**
@@ -563,6 +582,7 @@ function CompactQuestionMessage({
   renderMessage,
   hasFollowUpFor,
   durationFor,
+  hideToolActivity,
 }: CompactQuestionMessageProps) {
   const stripped = useMemo(() => stripQuestionsFromMessage(message), [message])
 
@@ -591,17 +611,34 @@ function CompactQuestionMessage({
     [stripped, globalIndex]
   )
 
+  const hiddenToolsText = useMemo(
+    () => (hideToolActivity ? collectAssistantText(activityGroup) : ''),
+    [hideToolActivity, activityGroup]
+  )
+
   return (
     <>
-      {hasNonQuestionContent && (
-        <CompactActivityRow
-          group={activityGroup}
-          total={1}
-          renderMessage={renderMessage}
-          hasFollowUpFor={hasFollowUpFor}
-          durationFor={durationFor}
-        />
-      )}
+      {hideToolActivity
+        ? hiddenToolsText && (
+            <div className="pb-4">
+              <Markdown
+                streaming={false}
+                messageId={message.id}
+                sessionId={sessionId}
+              >
+                {hiddenToolsText}
+              </Markdown>
+            </div>
+          )
+        : hasNonQuestionContent && (
+            <CompactActivityRow
+              group={activityGroup}
+              total={1}
+              renderMessage={renderMessage}
+              hasFollowUpFor={hasFollowUpFor}
+              durationFor={durationFor}
+            />
+          )}
       {questionItems.map(item => {
         const isAnswered =
           hasFollowUpMessage ||
@@ -703,6 +740,7 @@ export const CompactMessageList = memo(
         loadedRunStartIndex = 0,
         hiddenPromptCount = 0,
         onShowHiddenPrompts,
+        hideToolActivity = false,
       },
       ref
     ) {
@@ -1154,6 +1192,7 @@ export const CompactMessageList = memo(
                     renderMessage={renderMessageItem}
                     hasFollowUpFor={hasFollowUpFor}
                     durationFor={durationFor}
+                    hideToolActivity={hideToolActivity}
                   />
                 </div>
               )
@@ -1218,6 +1257,22 @@ export const CompactMessageList = memo(
                       singleMessage.message
                     ),
                   })}
+                </div>
+              )
+            }
+
+            if (hideToolActivity) {
+              const text = collectAssistantText(item.messages)
+              if (!text) return null
+              return (
+                <div key={item.key} className="pb-4">
+                  <Markdown
+                    streaming={false}
+                    messageId={item.key}
+                    sessionId={sessionId}
+                  >
+                    {text}
+                  </Markdown>
                 </div>
               )
             }
